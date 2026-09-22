@@ -2247,7 +2247,7 @@ static void ComputeLayout(int cw, int ch) {
     y = bh + pad;
     for (r = 0; r < nrows; r++) {
         int row = rows[r], n = 0, ci;
-        int rgap = (row == 14) ? 1 : gap;   /* pin strip: tight buttons */
+        int rgap = (row == 14) ? 0 : gap;   /* pin strip: edge-to-edge */
         float tot = 0;
         for (i = 0; i < g_nkeys; i++)
             if (g_keys[i].row == row) { tot += g_keys[i].w; n++; }
@@ -2305,14 +2305,15 @@ static void InvBar(int id) {
         if (g_bar[i].id == id) InvalidateRect(g_hwnd, &g_bar[i].rc, FALSE);
 }
 
-static void FillRR(HDC dc, RECT *rc, COLORREF c) {
+static void FillRRr(HDC dc, RECT *rc, COLORREF c, int r) {
     HBRUSH b = CreateSolidBrush(c);
     HPEN p = CreatePen(PS_NULL, 0, 0);
     HGDIOBJ ob = SelectObject(dc, b), op = SelectObject(dc, p);
-    RoundRect(dc, rc->left, rc->top, rc->right, rc->bottom, 8, 8);
+    RoundRect(dc, rc->left, rc->top, rc->right, rc->bottom, r, r);
     SelectObject(dc, ob); SelectObject(dc, op);
     DeleteObject(b); DeleteObject(p);
 }
+static void FillRR(HDC dc, RECT *rc, COLORREF c) { FillRRr(dc, rc, c, 8); }
 
 static void PaintKey(HDC dc, Key *k, int idx) {
     COLORREF bg = C_KEY, fg = C_TXT;
@@ -2348,7 +2349,9 @@ static void PaintKey(HDC dc, Key *k, int idx) {
     if (k->kind == K_CNAV && k->vk == CNAV_PIN && g_pinArm) { bg = C_LOCK; fg = C_TXT; }
     if (k->kind == K_CNAV && k->vk == CNAV_SDEL && g_scDelArm) { bg = C_LOCK; fg = C_TXT; }
     if (idx == g_pressed) bg = C_ACTIVE;
-    FillRR(dc, &k->rc, bg);
+    /* pin strip: slimmer corners to match the tight gap */
+    if (k->kind == K_SCUT && k->row == 14) FillRRr(dc, &k->rc, bg, 4);
+    else FillRR(dc, &k->rc, bg);
     SetBkMode(dc, TRANSPARENT);
     SetTextColor(dc, fg);
     if (k->kind == K_CLIP) {
@@ -2434,7 +2437,8 @@ static void PaintKey(HDC dc, Key *k, int idx) {
                 wcsncpy(disp, g_sc[s].name, 11);
                 disp[11] = 0;
             }
-            SelectObject(dc, g_fSmall);
+            /* pin strip (row 14): big font like suggestions; SC page keeps small */
+            SelectObject(dc, (k->row == 14) ? g_fKey : g_fSmall);
             if (g_scDelArm) SetTextColor(dc, RGB(255, 110, 110));
             DrawTextW(dc, disp, -1, &k->rc,
                       DT_CENTER|DT_VCENTER|DT_SINGLELINE);
