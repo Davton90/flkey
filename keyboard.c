@@ -713,58 +713,88 @@ static int BigramNext(int prevIdx, int *out) {
     return c;
 }
 
-/* top-3 suggestions: bigram next-words on a fresh word, otherwise
- * prefix matches (frequency order) with bigram continuations boosted */
+/* top-3 suggestions: bigram next-words on a fresh word, otherwise prefix
+ * matches (Pred only) with bigram continuations boosted. The strip is
+ * sticky: sugg slots are never overwritten with emptiness, so once shown
+ * the strip stays visible instead of flashing empty boxes. The red
+ * misspelt literal is a live overlay on slot 0 (buffer text, needs no
+ * slot). Pred off => Spell-only mode (literal only, completions never
+ * filled). */
+static void SyncSuggRow(void);   /* defined below; strip shows only w/ content */
 static void ComputeSugg(void) {
     int n = 0, i, k;
     wchar_t pre[32];
-    for (i = 0; i < 3; i++) g_sugg[i][0] = 0;
-    g_misspelt = 0;
-    if (!(g_predictOn || g_highlightOn) || !DictAvail(g_lang)) return;
+    wchar_t fresh[3][MAXWLEN + 1];
+    for (i = 0; i < 3; i++) fresh[i][0] = 0;
+    if (!(g_predictOn || g_highlightOn) || !DictAvail(g_lang)) {
+        /* mode/data off: strip must empty, never linger */
+        for (i = 0; i < 3; i++) g_sugg[i][0] = 0;
+        g_misspelt = 0;
+        SyncSuggRow();
+        return;
+    }
     if (g_wordLen == 0) {
-        if (g_bigramOn && g_prevIdx >= 0) {
+        g_misspelt = 0;
+        if (g_predictOn && g_bigramOn && g_prevIdx >= 0) {
             int nx[8], nn, j;
             nn = BigramNext(g_prevIdx, nx);
             for (j = 0; j < nn && n < 3; j++)
-                wcscpy(g_sugg[n++], g_dict[g_lang][nx[j]].w);
+                wcscpy(fresh[n++], g_dict[g_lang][nx[j]].w);
+            if (n > 0)
+                for (i = 0; i < 3; i++) wcscpy(g_sugg[i], fresh[i]);
         }
+        SyncSuggRow();
         return;
-    }
-    for (i = 0; i < g_wordLen && i < 31; i++) {
-        wchar_t c = g_wordBuf[i];
-        pre[i] = (c >= L'A' && c <= L'Z') ? c + 32 : c;
-    }
-    pre[i] = 0;
-    for (i = 0; i < g_ndict[g_lang] && n < 3; i++) {
-        const wchar_t *w = g_dict[g_lang][i].w;
-        for (k = 0; pre[k]; k++)
-            if (w[k] != pre[k]) break;
-        if (pre[k]) continue;             /* not a prefix match */
-        if (!pre[0] && n >= 3) break;
-        wcscpy(g_sugg[n++], w);
-    }
-    if (g_bigramOn && g_prevIdx >= 0 && n > 1) {
-        /* continuations of the previous word jump to the front */
-        int nx[8], nn = BigramNext(g_prevIdx, nx);
-        int w = 0, j, m;
-        wchar_t tmp[3][MAXWLEN + 1];
-        for (j = 0; j < n; j++) {
-            for (m = 0; m < nn; m++)
-                if (!wcscmp(g_sugg[j], g_dict[g_lang][nx[m]].w)) break;
-            if (m < nn) wcscpy(tmp[w++], g_sugg[j]);
+    } else {
+        for (i = 0; i < g_wordLen && i < 31; i++) {
+            wchar_t c = g_wordBuf[i];
+            pre[i] = (c >= L'A' && c <= L'Z') ? c + 32 : c;
         }
-        for (j = 0; j < n; j++) {
-            for (m = 0; m < nn; m++)
-                if (!wcscmp(g_sugg[j], g_dict[g_lang][nx[m]].w)) break;
-            if (m >= nn) wcscpy(tmp[w++], g_sugg[j]);
+        pre[i] = 0;
+        if (g_predictOn) {
+            for (i = 0; i < g_ndict[g_lang] && n < 3; i++) {
+                const wchar_t *w = g_dict[g_lang][i].w;
+                for (k = 0; pre[k]; k++)
+                    if (w[k] != pre[k]) break;
+                if (pre[k]) continue;             /* not a prefix match */
+                if (!pre[0] && n >= 3) break;
+                wcscpy(fresh[n++], w);
+            }
+            if (g_bigramOn && g_prevIdx >= 0 && n > 1) {
+                /* continuations of the previous word jump to the front */
+                int nx[8], nn = BigramNext(g_prevIdx, nx);
+                int w = 0, j, m;
+                wchar_t tmp[3][MAXWLEN + 1];
+                for (j = 0; j < n; j++) {
+                    for (m = 0; m < nn; m++)
+                        if (!wcscmp(fresh[j], g_dict[g_lang][nx[m]].w)) break;
+                    if (m < nn) wcscpy(tmp[w++], fresh[j]);
+                }
+                for (j = 0; j < n; j++) {
+                    for (m = 0; m < nn; m++)
+                        if (!wcscmp(fresh[j], g_dict[g_lang][nx[m]].w)) break;
+                    if (m >= nn) wcscpy(tmp[w++], fresh[j]);
+                }
+                for (j = 0; j < n; j++) wcscpy(fresh[j], tmp[j]);
+            }
+            if (n > 0) {
+                for (i = 0; i < 3; i++) wcscpy(g_sugg[i], fresh[i]);
+                g_misspelt = 0;
+            } else if (g_wordLen >= 2) {
+                g_misspelt = 1;   /* live red overlay; sugg slots untouched */
+            }
+        } else {
+            /* Pred off: only detect misspelt for the red literal */
+            int found = 0;
+            for (i = 0; i < g_ndict[g_lang]; i++) {
+                const wchar_t *w = g_dict[g_lang][i].w;
+                for (k = 0; pre[k] && w[k] == pre[k]; k++) ;
+                if (!pre[k]) { found = 1; break; }
+            }
+            g_misspelt = (!found && g_wordLen >= 2) ? 1 : 0;
         }
-        for (j = 0; j < n; j++) wcscpy(g_sugg[j], tmp[j]);
     }
-    /* no dict word even starts with this (len>=2 avoids flashing on 1st
-     * letter): flag as misspelt for the red highlight. An exact match
-     * always counts as a prefix match of itself, so n==0 also means
-     * "not in dictionary" with no extra scan. */
-    if (g_wordLen >= 2 && n == 0) g_misspelt = 1;
+    SyncSuggRow();
 }
 
 /* track the word being typed through this keyboard */
@@ -921,6 +951,98 @@ static void AutoCorrectNow(int trail) {
     g_autoTrail = trail;
     g_autoActive = 1;
     InvSugg();
+}
+
+/* ---------------- clip persistence (text only) ---------------------- */
+/* Text entries (+pins) survive restarts via %LOCALAPPDATA%\FloatKeys\clip.dat.
+ * Images are session-only. Format: magic,ver,count, then per entry:
+ * pinned(DWORD), cch(DWORD), UTF-16 chars (no NUL). */
+#define CLIP_MAGIC 0x464B434C
+#define CLIP_VER 1
+
+static void ClipPath(wchar_t *out, int n) {
+    DWORD m;
+    out[0] = 0;
+    m = GetEnvironmentVariableW(L"LOCALAPPDATA", out, (DWORD)n);
+    if (!m || m >= (DWORD)n) { out[0] = 0; return; }
+    wcsncat(out, L"\\FloatKeys", n - wcslen(out) - 1);
+    CreateDirectoryW(out, NULL);
+    wcsncat(out, L"\\clip.dat", n - wcslen(out) - 1);
+}
+
+static void SaveClip(void) {
+    wchar_t path[MAX_PATH];
+    FILE *f;
+    int i, n = 0;
+    DWORD magic = CLIP_MAGIC, ver = CLIP_VER, cnt;
+    ClipPath(path, MAX_PATH);
+    if (!path[0]) return;
+    for (i = 0; i < g_nclip; i++)
+        if (!g_clip[i].isImg && g_clip[i].text) n++;
+    f = _wfopen(path, L"wb");
+    if (!f) return;
+    cnt = (DWORD)n;
+    fwrite(&magic, 4, 1, f);
+    fwrite(&ver, 4, 1, f);
+    fwrite(&cnt, 4, 1, f);
+    for (i = 0; i < g_nclip; i++) {
+        if (g_clip[i].isImg || !g_clip[i].text) continue;
+        {
+            DWORD cch = (DWORD)wcslen(g_clip[i].text);
+            DWORD pin = g_clip[i].pinned ? 1 : 0;
+            if (cch > 4000) cch = 4000;
+            fwrite(&pin, 4, 1, f);
+            fwrite(&cch, 4, 1, f);
+            fwrite(g_clip[i].text, sizeof(wchar_t), cch, f);
+        }
+    }
+    fclose(f);
+}
+
+static void LoadClip(void) {
+    wchar_t path[MAX_PATH];
+    FILE *f;
+    long fsz;
+    DWORD magic, ver, cnt, i;
+    int seenUnpinned = 0;
+    ClipPath(path, MAX_PATH);
+    if (!path[0]) return;
+    f = _wfopen(path, L"rb");
+    if (!f) return;
+    fseek(f, 0, SEEK_END);
+    fsz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (fsz < 12 || fsz > 4 * 1024 * 1024) { fclose(f); return; }
+    if (fread(&magic, 4, 1, f) != 1 || magic != CLIP_MAGIC ||
+        fread(&ver, 4, 1, f) != 1 || ver != CLIP_VER ||
+        fread(&cnt, 4, 1, f) != 1 || cnt > MAXCLIP) {
+        fclose(f); return;
+    }
+    for (i = 0; i < cnt && g_nclip < MAXCLIP; i++) {
+        DWORD pin, cch;
+        wchar_t *t;
+        if (fread(&pin, 4, 1, f) != 1 || fread(&cch, 4, 1, f) != 1 ||
+            cch == 0 || cch > 4000) break;
+        t = (wchar_t *)malloc((cch + 1) * sizeof(wchar_t));
+        if (!t) break;
+        if (fread(t, sizeof(wchar_t), cch, f) != cch) {
+            free(t); break;
+        }
+        t[cch] = 0;
+        g_clip[g_nclip].isImg = 0;
+        g_clip[g_nclip].text = t;
+        g_clip[g_nclip].hbmp = NULL;
+        g_clip[g_nclip].iw = g_clip[g_nclip].ih = 0;
+        /* enforce pinned-lead invariant against corrupt files */
+        if (pin && !seenUnpinned) g_clip[g_nclip].pinned = 1;
+        else {
+            g_clip[g_nclip].pinned = 0;
+            seenUnpinned = 1;
+        }
+        g_nclip++;
+    }
+    fclose(f);
+    g_clipOff = 0;
 }
 
 /* ---------------- clipboard history (text + images) ---------------- */
@@ -1631,6 +1753,7 @@ static void DoSetAction(int a) {
             if (DictAvail(other)) g_lang = other;
             else if (!DictAvail(g_lang)) break;
             g_prevWord[0] = 0; g_prevIdx = -1;   /* bigram indices are per-lang */
+            g_sugg[0][0] = g_sugg[1][0] = g_sugg[2][0] = 0; g_misspelt = 0;
             WordClear();
             BuildKeys();
             GetClientRect(g_hwnd, &cl);
@@ -1640,6 +1763,8 @@ static void DoSetAction(int a) {
         }
         case SET_PRED:
             g_predictOn = !g_predictOn;
+            g_sugg[0][0] = g_sugg[1][0] = g_sugg[2][0] = 0; g_misspelt = 0;
+            ComputeSugg();
             ResizeForScale();
             break;
         case SET_AUTO:
@@ -1648,6 +1773,8 @@ static void DoSetAction(int a) {
             break;
         case SET_SPELL:
             g_highlightOn = !g_highlightOn;
+            g_sugg[0][0] = g_sugg[1][0] = g_sugg[2][0] = 0; g_misspelt = 0;
+            ComputeSugg();
             ResizeForScale();
             break;
         case SET_PINWIN:
@@ -1655,6 +1782,7 @@ static void DoSetAction(int a) {
             break;
         case SET_BIGRAM:
             g_bigramOn = !g_bigramOn;
+            g_sugg[0][0] = g_sugg[1][0] = g_sugg[2][0] = 0; g_misspelt = 0;
             ComputeSugg();
             InvSugg();
             break;
@@ -1691,6 +1819,25 @@ static void InvSugg(void) {
     if (!(g_predictOn || g_highlightOn) || !DictAvail(g_lang)) return;
     for (i = 0; i < g_nkeys; i++)
         if (g_keys[i].kind == K_SUGG) InvKey(i);
+}
+
+/* suggestion strip is only laid out while it shows something, so a bare
+ * pin strip is never followed by three empty boxes (symmetric look) */
+static int g_suggRowOn = -1;
+static int SuggRowHasContent(void) {
+    if (g_sugg[0][0] || g_sugg[1][0] || g_sugg[2][0]) return 1;
+    if (g_highlightOn && g_misspelt && g_wordLen > 0) return 1;
+    return 0;
+}
+static int SuggRowOn(void) {
+    return (g_predictOn || g_highlightOn) && DictAvail(g_lang) &&
+           SuggRowHasContent();
+}
+static void SyncSuggRow(void) {
+    int want = SuggRowOn() ? 1 : 0;
+    if (want == g_suggRowOn) return;
+    g_suggRowOn = want;
+    if (g_hwnd && IsWindow(g_hwnd)) ResizeForScale();
 }
 /* merged Shift+Caps key (compact): 1 tap = Shift one-shot, 2 quick taps = CapsLock */
 static void ShcapRefresh(void) {
@@ -2226,7 +2373,7 @@ static void ComputeLayout(int cw, int ch) {
     if (g_showSettings) rows[nrows++] = 10;
     if (g_showMacros) rows[nrows++] = 11;
     if (g_pinBarOn && StarCount() > 0) rows[nrows++] = 14;
-    if ((g_predictOn || g_highlightOn) && DictAvail(g_lang)) rows[nrows++] = 12;
+    if (SuggRowOn()) rows[nrows++] = 12;
     if (g_compact) {
         for (r = 0; r < 4; r++) rows[nrows++] = r;
     } else if (g_showFn) {
@@ -2275,7 +2422,7 @@ static int VisibleRow(int row) {
     if (g_viewSC) return (row >= 30 && row <= 32);
     if (row == 10) return g_showSettings;
     if (row == 11) return g_showMacros;
-    if (row == 12) return (g_predictOn || g_highlightOn) && DictAvail(g_lang);
+    if (row == 12) return SuggRowOn();
     if (row == 13) return (g_recSlot >= 0);
     if (row == 14) return g_pinBarOn && (StarCount() > 0);
     if (row >= 20) return 0;
@@ -2362,16 +2509,27 @@ static void PaintKey(HDC dc, Key *k, int idx) {
                 HDC mdc = CreateCompatibleDC(dc);
                 HGDIOBJ so;
                 int th = k->rc.bottom - k->rc.top - 10, tw;
+                int ix, iy;
                 wchar_t dim[32];
                 if (th < 16) th = 16;
                 tw = th * e->iw / (e->ih ? e->ih : 1);
                 if (tw < 8) tw = 8;
+                ix = k->rc.left + 6;
+                iy = k->rc.top + (k->rc.bottom - k->rc.top - th) / 2;
+                /* light backdrop: dark/transparent shots stay visible */
+                {
+                    RECT fr;
+                    HBRUSH gb = CreateSolidBrush(RGB(110, 110, 110));
+                    fr.left = ix - 2; fr.top = iy - 2;
+                    fr.right = ix + tw + 2; fr.bottom = iy + th + 2;
+                    FillRect(dc, &fr, gb);
+                    DeleteObject(gb);
+                }
                 so = SelectObject(mdc, e->hbmp);
                 SetStretchBltMode(dc, HALFTONE);
                 SetBrushOrgEx(dc, 0, 0, NULL);
-                StretchBlt(dc, k->rc.left + 6,
-                           k->rc.top + (k->rc.bottom - k->rc.top - th) / 2,
-                           tw, th, mdc, 0, 0, e->iw, e->ih, SRCCOPY);
+                StretchBlt(dc, ix, iy, tw, th, mdc, 0, 0,
+                           e->iw, e->ih, SRCCOPY);
                 SelectObject(mdc, so);
                 DeleteDC(mdc);
                 wsprintfW(dim, L"IMG %dx%d", e->iw, e->ih);
@@ -2386,7 +2544,17 @@ static void PaintKey(HDC dc, Key *k, int idx) {
                 int n = (int)wcslen(e->text), j, o = 0;
                 for (j = 0; j < n && o < 28; j++) {
                     wchar_t c = e->text[j];
-                    if (c == L'\r' || c == L'\n') c = L' ';
+                    if (c == L'\r' || c == L'\n' || c == L'\t') c = L' ';
+                    else if (c < 0x20 || (c >= 0x7F && c < 0xA0)) c = L' ';
+                    /* never split a surrogate pair (emoji) in half */
+                    if (c >= 0xD800 && c <= 0xDBFF && j + 1 < n &&
+                        e->text[j + 1] >= 0xDC00 && e->text[j + 1] <= 0xDFFF) {
+                        if (o + 2 > 28) break;
+                        prev[o++] = c;
+                        prev[o++] = e->text[++j];
+                        continue;
+                    }
+                    if (c >= 0xD800 && c <= 0xDFFF) continue; /* lone: skip */
                     prev[o++] = c;
                 }
                 prev[o] = 0;
@@ -2464,14 +2632,18 @@ static void PaintKey(HDC dc, Key *k, int idx) {
         DrawTextW(dc, msg, -1, &k->rc, DT_CENTER|DT_VCENTER|DT_SINGLELINE);
         return;
     } else if (k->kind == K_SUGG) {
-        const wchar_t *s = (k->vk < 3) ? g_sugg[k->vk] : L"";
-        SelectObject(dc, g_fKey);
-        if (s[0]) DrawTextW(dc, s, -1, &k->rc, DT_CENTER|DT_VCENTER|DT_SINGLELINE);
-        else if (k->vk == 0 && g_highlightOn && g_misspelt && g_wordLen > 0) {
-            /* highlight misspelt word: literal typing in red (tap = keep) */
+        /* red misspelt literal overlays slot 0 live (buffer, not a slot) */
+        if (k->vk == 0 && g_highlightOn && g_misspelt && g_wordLen > 0) {
+            SelectObject(dc, g_fKey);
             SetTextColor(dc, RGB(255, 110, 110));
             DrawTextW(dc, g_wordBuf, g_wordLen, &k->rc,
                       DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+            return;
+        }
+        {
+            const wchar_t *s = (k->vk < 3) ? g_sugg[k->vk] : L"";
+            SelectObject(dc, g_fKey);
+            if (s[0]) DrawTextW(dc, s, -1, &k->rc, DT_CENTER|DT_VCENTER|DT_SINGLELINE);
         }
         return;
     } else if (k->kind == K_CHAR) {
@@ -2573,7 +2745,7 @@ static int NRows(void) {
     if (g_recSlot >= 0) n += 1;   /* record banner above the keys */
     if (!g_viewClip && !g_viewSC && g_pinBarOn && StarCount() > 0) n += 1;   /* pin strip */
     if (g_showSettings || g_showMacros) n += 1;
-    if ((g_predictOn || g_highlightOn) && DictAvail(g_lang)) n += 1;
+    if (SuggRowOn()) n += 1;
     return n;
 }
 static int BaseH(void) {
@@ -2934,6 +3106,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         case WM_DESTROY: {
             int i;
             SaveSettings();
+            SaveClip();
             ClipClearAll();
             if (g_fgHook) { UnhookWinEvent(g_fgHook); g_fgHook = NULL; }
             for (i = 0; i < g_npinwins; i++)
@@ -2947,7 +3120,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             return 0;
         }
         case WM_ENDSESSION:
-            if (w) SaveSettings(); /* Windows shutdown/restart */
+            if (w) { SaveSettings(); SaveClip(); }   /* Windows shutdown */
             return 0;
     }
     return DefWindowProcW(h, m, w, l);
@@ -2974,6 +3147,7 @@ int WINAPI WinMain(HINSTANCE hi, HINSTANCE hp, LPSTR cmd, int show) {
     if (!DictAvail(g_lang)) g_lang = DictAvail(0) ? 0 : 1;
     if (!DictAvail(0) && !DictAvail(1)) g_predictOn = g_autocorrect = g_highlightOn = 0;
     if (!g_bigram[0] && !g_bigram[1]) g_bigramOn = 0;
+    LoadClip();   /* restore persisted text history (images stay session-only) */
     if (g_compact) g_page = 0;
     WordClear();
     BuildKeys();

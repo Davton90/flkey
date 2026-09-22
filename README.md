@@ -7,7 +7,9 @@ A suggestion strip above the keys offers the top-3 completions from a
 `.exe`, ~1.4MB total — still single-file, no downloads needed). Tap a
 suggestion to complete the word + space. `⚙` panel: `ID`/`EN` switches
 language, `Pred` toggles predictions. It learns from what you type through
-FloatKeys (current word tracking, Backspace-aware).
+FloatKeys (current word tracking, Backspace-aware). The strip is sticky:
+once shown it keeps the last suggestions instead of flashing empty boxes.
+`Pred` off = Spell-only mode (no completions, just the red literal).
 
 ## Bigram next-word (n-gram)
 
@@ -72,11 +74,14 @@ menampilkan strip ini (tersimpan di registry).
 ## Clipboard history (text + images)
 
 `Clip` button opens the clipboard page: the last 25 copies (max 8 images,
-auto-downscaled) with thumbnails. It records everything you copy —
+auto-downscaled) with thumbnails on a light frame (so dark screenshots
+stay visible). It records everything you copy —
 including screenshots/images (e.g. Snipping Tool `Win+Shift+S`, copy-image
 in browser). Tap an entry to paste it into the focused app. `▲`/`▼`
 scroll, `Clear` empties everything except pins, `Keys` returns to the
-keyboard.
+keyboard. Teks (+pin) tersimpan permanen di
+`%LOCALAPPDATA%\FloatKeys\clip.dat` dan dimuat lagi saat dibuka;
+gambar hanya sesi berjalan.
 
 ## Pinned clipboard items
 
