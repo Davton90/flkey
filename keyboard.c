@@ -193,7 +193,7 @@ static const Macro g_macros[] = {
 #define NMACROS (sizeof(g_macros)/sizeof(g_macros[0]))
 /* settings panel actions */
 enum { SET_SM=1, SET_BG, SET_OPDN, SET_OPUP, SET_DONE, SET_LANG, SET_PRED,
-         SET_AUTO, SET_SPELL, SET_PINWIN, SET_BIGRAM };
+         SET_AUTO, SET_SPELL, SET_PINWIN, SET_BIGRAM, SET_PINBAR };
 
 /* custom shortcuts page: 10 user-recorded combos (mods bit0=shift,
  * bit1=ctrl, bit2=alt, bit3=win — same as Macro), persistent in registry */
@@ -222,6 +222,7 @@ static BarBtn g_bar[7] = {
 };
 
 static int g_starArm = 0;   /* star mode on SC page: tap toggles pin */
+static int g_pinBarOn = 1;  /* pin strip visible (SET_PINBAR toggle, persisted) */
 
 static int StarCount(void) {
     int i, n = 0;
@@ -460,6 +461,7 @@ static void BuildSettingsRow(void) {
     AddKey(L"Spell", K_SET, SET_SPELL, 0, 0,0, 1.5f, 10);
     AddKey(L"Bi", K_SET, SET_BIGRAM, 0, 0,0, 1.5f, 10);
     AddKey(L"Pin", K_SET, SET_PINWIN, 0, 0,0, 1.5f, 10);
+    AddKey(L"\u2605", K_SET, SET_PINBAR, 0, 0,0, 1.5f, 10);
     AddKey(L"Done", K_SET, SET_DONE, 0, 0,0, 1.5f, 10);
 }
 
@@ -1656,6 +1658,10 @@ static void DoSetAction(int a) {
             ComputeSugg();
             InvSugg();
             break;
+        case SET_PINBAR:
+            g_pinBarOn = !g_pinBarOn;
+            ResizeForScale();
+            break;
     }
     SaveSettings();
 }
@@ -2219,7 +2225,7 @@ static void ComputeLayout(int cw, int ch) {
     if (g_recSlot >= 0) rows[nrows++] = 13;
     if (g_showSettings) rows[nrows++] = 10;
     if (g_showMacros) rows[nrows++] = 11;
-    if (StarCount() > 0) rows[nrows++] = 14;
+    if (g_pinBarOn && StarCount() > 0) rows[nrows++] = 14;
     if ((g_predictOn || g_highlightOn) && DictAvail(g_lang)) rows[nrows++] = 12;
     if (g_compact) {
         for (r = 0; r < 4; r++) rows[nrows++] = r;
@@ -2241,19 +2247,20 @@ static void ComputeLayout(int cw, int ch) {
     y = bh + pad;
     for (r = 0; r < nrows; r++) {
         int row = rows[r], n = 0, ci;
+        int rgap = (row == 14) ? 1 : gap;   /* pin strip: tight buttons */
         float tot = 0;
         for (i = 0; i < g_nkeys; i++)
             if (g_keys[i].row == row) { tot += g_keys[i].w; n++; }
         x = pad;
         ci = 0;
         for (i = 0; i < g_nkeys; i++) if (g_keys[i].row == row) {
-            int wpx = (int)((cw - pad*2 - gap*(n-1)) * (g_keys[i].w / tot));
+            int wpx = (int)((cw - pad*2 - rgap*(n-1)) * (g_keys[i].w / tot));
             if (++ci == n) wpx = cw - pad - x; /* absorb rounding */
             g_keys[i].rc.left = x; g_keys[i].rc.top = y;
             g_keys[i].rc.right = x + wpx; g_keys[i].rc.bottom = y + rh;
-            x += wpx + gap;
+            x += wpx + rgap;
         }
-        y += rh + gap;
+        y += rh + rgap;
     }
     /* hide fn rects when hidden (Full mode only: in Compact, row 0 is
      * the letter/number row, not the Fn row) */
@@ -2270,7 +2277,7 @@ static int VisibleRow(int row) {
     if (row == 11) return g_showMacros;
     if (row == 12) return (g_predictOn || g_highlightOn) && DictAvail(g_lang);
     if (row == 13) return (g_recSlot >= 0);
-    if (row == 14) return (StarCount() > 0);
+    if (row == 14) return g_pinBarOn && (StarCount() > 0);
     if (row >= 20) return 0;
     if (g_compact) return 1;
     if (row == 0 && !g_showFn) return 0;
@@ -2334,6 +2341,7 @@ static void PaintKey(HDC dc, Key *k, int idx) {
         (k->vk == SET_AUTO && g_autocorrect) ||
         (k->vk == SET_SPELL && g_highlightOn) ||
         (k->vk == SET_BIGRAM && g_bigramOn) ||
+        (k->vk == SET_PINBAR && g_pinBarOn) ||
         (k->vk == SET_PINWIN && CurTargetPinned()))) {
         bg = C_LOCK; fg = C_TXT;
     }
@@ -2559,7 +2567,7 @@ static int NRows(void) {
     if (g_viewSC) return 3;
     n = g_compact ? 4 : (g_showFn ? 6 : 5);
     if (g_recSlot >= 0) n += 1;   /* record banner above the keys */
-    if (!g_viewClip && !g_viewSC && StarCount() > 0) n += 1;   /* pin strip */
+    if (!g_viewClip && !g_viewSC && g_pinBarOn && StarCount() > 0) n += 1;   /* pin strip */
     if (g_showSettings || g_showMacros) n += 1;
     if ((g_predictOn || g_highlightOn) && DictAvail(g_lang)) n += 1;
     return n;
@@ -2661,6 +2669,8 @@ static void SaveSettings(void) {
     RegSetValueExW(k, L"Highlight", 0, REG_DWORD, (const BYTE *)&v, sizeof(v));
     v = (DWORD)(g_bigramOn ? 1 : 0);
     RegSetValueExW(k, L"Bigram", 0, REG_DWORD, (const BYTE *)&v, sizeof(v));
+    v = (DWORD)(g_pinBarOn ? 1 : 0);
+    RegSetValueExW(k, L"PinBar", 0, REG_DWORD, (const BYTE *)&v, sizeof(v));
     for (i = 0; i < MAXSCUT; i++) {
         wchar_t nm[16];
         wsprintfW(nm, L"SC%dM", i);
@@ -2736,6 +2746,10 @@ static void LoadSettings(void) {
     if (RegQueryValueExW(k, L"Bigram", NULL, &type, (BYTE *)&v, &sz) == ERROR_SUCCESS
         && type == REG_DWORD)
         g_bigramOn = v ? 1 : 0;
+    sz = sizeof(v);
+    if (RegQueryValueExW(k, L"PinBar", NULL, &type, (BYTE *)&v, &sz) == ERROR_SUCCESS
+        && type == REG_DWORD)
+        g_pinBarOn = v ? 1 : 0;
     for (i = 0; i < MAXSCUT; i++) {
         wchar_t nm[16], buf[16];
         DWORD sz2;

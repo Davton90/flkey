@@ -63,10 +63,11 @@ Semua tersimpan permanen di registry (`HKCU\Software\FloatKeys`).
 ## Pin shortcut ke strip sendiri (ikon `★`)
 
 Di halaman SC, nyalakan `★`, lalu ketuk slot untuk menyematkannya —
-muncul sebagai **strip tombol tersendiri** (seperti strip prediksi,
-di bawahnya), satu ketuk langsung jalan tanpa membuka halaman SC.
+muncul sebagai **strip tombol tersendiri** (rapat, di bawah strip
+prediksi), satu ketuk langsung jalan tanpa membuka halaman SC.
 Maksimal 3 (yang ke-4 diabaikan); ketuk lagi untuk melepas. Slot yang
-di-pin berlabel `★nama`.
+di-pin berlabel `★nama`. Tombol `★` di panel `⚙` menyembunyikan /
+menampilkan strip ini (tersimpan di registry).
 
 ## Clipboard history (text + images)
 
@@ -161,7 +162,7 @@ Real shortcuts with mouse/touch only:
 - `⚙` (left) = settings panel: `A+` / `A-` size, `◐` / `◑` opacity,
   `ID`/`EN` language, `Pred` suggestions, `Bi` bigram next-word,
   `Auto` autocorrect, `Spell` misspelt highlight,
-  `Pin` pin window on top, `Done`
+  `Pin` pin window on top, `★` show/hide pinned-shortcut strip, `Done`
 - `★` = one-tap shortcut panel: Copy Paste Cut Undo Save All AltTab Shot Lock
 - `SC` = custom shortcuts page: 10 user-recorded combos (tap `+` to record)
 - `Fn` = show/hide `Esc F1–F12` (Full mode only), `Compact`/`Full` = switch layouts
