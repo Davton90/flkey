@@ -111,6 +111,8 @@ Two versions, same behavior:
 ## Run (native, recommended)
 
 Just double-click **`FloatKeys.exe`** — no install, no runtime, no admin.
+Single instance: launching it again just brings the running keyboard
+forward instead of opening a second one.
 
 ## Rebuild from source
 

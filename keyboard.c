@@ -3126,9 +3126,54 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     return DefWindowProcW(h, m, w, l);
 }
 
+/* single instance: a second launch (taskbar pin clicked twice) just
+ * brings the running keyboard forward instead of opening another one.
+ * The mutex is auto-released if the process dies; handle kept open. */
+static HANDLE g_singleton = NULL;
+
+static void ActivateExisting(HWND h) {
+    DWORD fgThread = 0, tgtThread, ourThread = GetCurrentThreadId();
+    BOOL aFg = FALSE, aTg = FALSE;
+    HWND fg;
+    if (!IsWindow(h)) return;
+    if (IsIconic(h)) ShowWindow(h, SW_RESTORE);
+    fg = GetForegroundWindow();
+    if (fg) fgThread = GetWindowThreadProcessId(fg, NULL);
+    tgtThread = GetWindowThreadProcessId(h, NULL);
+    if (fgThread && fgThread != ourThread)
+        aFg = AttachThreadInput(ourThread, fgThread, TRUE);
+    if (tgtThread && tgtThread != ourThread && tgtThread != fgThread)
+        aTg = AttachThreadInput(ourThread, tgtThread, TRUE);
+    if (fgThread && tgtThread && fgThread != tgtThread)
+        AttachThreadInput(fgThread, tgtThread, TRUE);
+    SetForegroundWindow(h);
+    if (fgThread && tgtThread && fgThread != tgtThread)
+        AttachThreadInput(fgThread, tgtThread, FALSE);
+    if (aTg) AttachThreadInput(ourThread, tgtThread, FALSE);
+    if (aFg) AttachThreadInput(ourThread, fgThread, FALSE);
+    if (GetForegroundWindow() != h) {
+        FLASHWINFO fi;
+        fi.cbSize = sizeof(fi);
+        fi.hwnd = h;
+        fi.dwFlags = FLASHW_ALL | FLASHW_TIMERNOFG;
+        fi.uCount = 3;
+        fi.dwTimeout = 0;
+        FlashWindowEx(&fi);
+    }
+}
+
 /* ---------------- entry ---------------- */
 int WINAPI WinMain(HINSTANCE hi, HINSTANCE hp, LPSTR cmd, int show) {
     WNDCLASSEXW wc = {0};
+    g_singleton = CreateMutexW(NULL, FALSE, L"FloatKeys_SingleInstance");
+    if (GetLastError() == ERROR_ALREADY_EXISTS) {
+        /* already running: focus it, don't open a second keyboard */
+        HWND h = FindWindowW(L"FloatKeys", NULL);
+        if (h) ActivateExisting(h);
+        if (g_singleton) CloseHandle(g_singleton);
+        g_singleton = NULL;
+        return 0;
+    }
     /* DPI awareness first */
     {
         HMODULE sh = LoadLibraryW(L"shcore.dll");
