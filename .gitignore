@@ -1,0 +1,32 @@
+# Rust
+rust/target/
+
+# Build output
+FloatKeyrusts.exe
+FloatKeyrusts.pdb
+FloatKeys.exe
+FloatKeys.pdb
+FloatKeys_new.pdb
+FloatKeys_norc.pdb
+FloatKeys_warn.pdb
+FloatKeys.zip
+
+# Logs
+*.log
+
+# Python
+__pycache__/
+*.pyc
+
+# Wrangler
+.wrangler/
+
+# IDE / OS
+.vs/
+.idea/
+*.swp
+Thumbs.db
+.DS_Store
+
+# Debug
+*.pdb

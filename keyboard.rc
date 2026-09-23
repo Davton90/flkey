@@ -1,0 +1,6 @@
+#include <windows.h>
+1 ICON "app.ico"
+101 RCDATA "words_id.txt"
+102 RCDATA "words_en.txt"
+103 RCDATA "bigrams_id.bin"
+104 RCDATA "bigrams_en.bin"
