@@ -227,9 +227,9 @@ static UINT g_recVk = 0;
 static wchar_t g_recName[10];
 
 /* bar buttons: X at far right (Windows convention), gear at far left */
-enum { BAR_NONE=0, BAR_FN=1, BAR_STAR=2, BAR_MODE=3, BAR_X=4, BAR_GEAR=5, BAR_CLIP=6, BAR_SC=7, BAR_CALC=8, BAR_TR=9 };
+enum { BAR_NONE=0, BAR_FN=1, BAR_STAR=2, BAR_MODE=3, BAR_X=4, BAR_GEAR=5, BAR_CLIP=6, BAR_SC=7, BAR_CALC=8, BAR_TR=9, BAR_MIN=10 };
 typedef struct { int id; wchar_t t[8]; RECT rc; int w; int show; int side; } BarBtn;
-static BarBtn g_bar[9] = {
+static BarBtn g_bar[10] = {
     { BAR_FN,   L"Fn",  {0}, 40, 1, 0 },
     { BAR_STAR, L"\u2605", {0}, 36, 1, 0 },
     { BAR_SC,   L"SC",  {0}, 36, 1, 0 },
@@ -237,9 +237,11 @@ static BarBtn g_bar[9] = {
     { BAR_CALC, L"Calc", {0}, 40, 1, 0 },
     { BAR_TR,   L"Tr",  {0}, 36, 1, 0 },
     { BAR_MODE, L"Compact", {0}, 58, 1, 0 },
+    { BAR_MIN,  L"\u2212", {0}, 36, 1, 0 },
     { BAR_X,    L"\u2715", {0}, 40, 1, 0 },
     { BAR_GEAR, L"\u2699", {0}, 36, 1, 1 },
 };
+static int g_minimized = 0;   /* collapsed to the bar only (persisted) */
 
 static int g_starArm = 0;   /* star mode on SC page: tap toggles pin */
 static int g_pinBarOn = 1;  /* pin strip visible (SET_PINBAR toggle, persisted) */
@@ -263,7 +265,7 @@ static int PinSlotByBar(int i) {
 
 static void SetModeLabel(void) {
     int i;
-    for (i = 0; i < 9; i++) {
+    for (i = 0; i < 10; i++) {
         if (g_bar[i].id == BAR_MODE)
             wcscpy(g_bar[i].t, g_compact ? L"Full" : L"Compact");
         if (g_bar[i].id == BAR_FN)
@@ -1873,7 +1875,7 @@ static void DoSetAction(int a) {
             if (g_scale < 1.5f) { g_scale += 0.1f; ResizeForScale(); }
             break;
         case SET_OPDN:
-            g_opacity -= 13; if (g_opacity < 102) g_opacity = 102;
+            g_opacity -= 13; if (g_opacity < 25) g_opacity = 25;
             ApplyOpacity(); break;
         case SET_OPUP:
             g_opacity += 13; if (g_opacity > 255) g_opacity = 255;
@@ -3058,7 +3060,7 @@ static void ComputeLayout(int cw, int ch) {
     int y, avail, rh, x;
     /* bar buttons: side 0 packs from right (X at far right), side 1 from left */
     x = cw - pad;
-    for (i = 7; i >= 0; i--) {
+    for (i = 8; i >= 0; i--) {
         if (!g_bar[i].show) {
             SetRectEmpty(&g_bar[i].rc);
         } else {
@@ -3069,15 +3071,16 @@ static void ComputeLayout(int cw, int ch) {
         }
     }
     x = pad;
-    for (i = 8; i < 9; i++) {
+    for (i = 9; i < 10; i++) {
         if (!g_bar[i].show) { SetRectEmpty(&g_bar[i].rc); continue; }
         int w = (int)(g_bar[i].w * g_scale);
         g_bar[i].rc.left = x; g_bar[i].rc.right = x + w;
         g_bar[i].rc.top = 3; g_bar[i].rc.bottom = bh - 3;
         x += w + 3;
     }
-    /* clipboard page replaces everything */
-    if (g_viewClip) {
+    /* minimized: bar only, no key rows at all */
+    if (g_minimized) {
+    } else if (g_viewClip) {
         for (r = 20; r <= 25; r++) rows[nrows++] = r;
     } else if (g_viewSC) {
         for (r = 30; r <= 32; r++) rows[nrows++] = r;
@@ -3136,6 +3139,8 @@ static void ComputeLayout(int cw, int ch) {
 }
 
 static int VisibleRow(int row) {
+    /* minimized: bar only, no key rows at all */
+    if (g_minimized) return 0;
     /* clip / shortcut views are exclusive: NOTHING else is hittable there */
     if (g_viewClip) return (row >= 20 && row <= 25);
     if (g_viewSC) return (row >= 30 && row <= 32);
@@ -3169,7 +3174,7 @@ static void InvCaps(void) {
 }
 static void InvBar(int id) {
     int i;
-    for (i = 0; i < 9; i++)
+    for (i = 0; i < 10; i++)
         if (g_bar[i].id == id) InvalidateRect(g_hwnd, &g_bar[i].rc, FALSE);
 }
 
@@ -3465,7 +3470,7 @@ static void OnPaint(void) {
         DeleteObject(b);
         SetBkMode(dc, TRANSPARENT);
         SelectObject(dc, g_fBar);
-        for (i = 0; i < 9; i++) {
+        for (i = 0; i < 10; i++) {
             if (!g_bar[i].show) continue;
             FillRR(dc, &g_bar[i].rc, (g_bar[i].id==g_downIdx-1000)?C_ACTIVE:C_SPEC);
             SetTextColor(dc, C_TXT);
@@ -3499,7 +3504,7 @@ static void OnPaint(void) {
 static int HitBar(int x, int y) {
     int i;
     POINT p = {x, y};
-    for (i = 0; i < 9; i++)
+    for (i = 0; i < 10; i++)
         if (g_bar[i].show && PtInRect(&g_bar[i].rc, p)) return g_bar[i].id;
     return BAR_NONE;
 }
@@ -3517,6 +3522,7 @@ static int HitKey(int x, int y) {
 static int BaseW(void) { return (int)((g_compact ? 460 : 720) * g_scale); }
 static int NRows(void) {
     int n;
+    if (g_minimized) return 0;
     if (g_viewClip) return 6;
     if (g_viewSC) return 3;
     if (g_viewCalc) return 6;
@@ -3564,17 +3570,17 @@ static void DoBar(int id) {
             break;
         case BAR_GEAR:
             g_showSettings = !g_showSettings;
-            if (g_showSettings) { g_showMacros = 0; g_viewClip = 0; g_viewSC = 0; g_viewCalc = 0; g_viewTr = 0; }
+            if (g_showSettings) { g_showMacros = 0; g_viewClip = 0; g_viewSC = 0; g_viewCalc = 0; g_viewTr = 0; g_minimized = 0; }
             ResizeForScale();
             break;
         case BAR_STAR:
             g_showMacros = !g_showMacros;
-            if (g_showMacros) { g_showSettings = 0; g_viewClip = 0; g_viewSC = 0; g_viewCalc = 0; g_viewTr = 0; }
+            if (g_showMacros) { g_showSettings = 0; g_viewClip = 0; g_viewSC = 0; g_viewCalc = 0; g_viewTr = 0; g_minimized = 0; }
             ResizeForScale();
             break;
         case BAR_CLIP:
             g_viewClip = !g_viewClip;
-            if (g_viewClip) { g_showSettings = 0; g_showMacros = 0; g_viewSC = 0; g_viewCalc = 0; g_viewTr = 0; }
+            if (g_viewClip) { g_showSettings = 0; g_showMacros = 0; g_viewSC = 0; g_viewCalc = 0; g_viewTr = 0; g_minimized = 0; }
             else g_pinArm = 0;
             g_clipOff = 0;
             ResizeForScale();
@@ -3583,7 +3589,7 @@ static void DoBar(int id) {
             if (g_recSlot >= 0) CancelRecord();
             g_viewSC = !g_viewSC;
             if (g_viewSC) {
-                g_showSettings = 0; g_showMacros = 0; g_viewClip = 0; g_viewCalc = 0; g_viewTr = 0;
+                g_showSettings = 0; g_showMacros = 0; g_viewClip = 0; g_viewCalc = 0; g_viewTr = 0; g_minimized = 0;
                 g_pinArm = 0;
             } else { g_scDelArm = 0; g_starArm = 0; }
             ResizeForScale();
@@ -3591,7 +3597,7 @@ static void DoBar(int id) {
         case BAR_CALC:
             g_viewCalc = !g_viewCalc;
             if (g_viewCalc) {
-                g_showSettings = 0; g_showMacros = 0; g_viewClip = 0; g_viewSC = 0; g_viewTr = 0;
+                g_showSettings = 0; g_showMacros = 0; g_viewClip = 0; g_viewSC = 0; g_viewTr = 0; g_minimized = 0;
                 g_pinArm = 0;
             }
             ResizeForScale();
@@ -3599,9 +3605,13 @@ static void DoBar(int id) {
         case BAR_TR:
             g_viewTr = !g_viewTr;
             if (g_viewTr) {
-                g_showSettings = 0; g_showMacros = 0; g_viewClip = 0; g_viewSC = 0; g_viewCalc = 0;
+                g_showSettings = 0; g_showMacros = 0; g_viewClip = 0; g_viewSC = 0; g_viewCalc = 0; g_minimized = 0;
                 g_pinArm = 0;
             } else g_trArm = 0;
+            ResizeForScale();
+            break;
+        case BAR_MIN:
+            g_minimized = !g_minimized;
             ResizeForScale();
             break;
         case BAR_MODE:
@@ -3644,6 +3654,8 @@ static void SaveSettings(void) {
     RegSetValueExW(k, L"Bigram", 0, REG_DWORD, (const BYTE *)&v, sizeof(v));
     v = (DWORD)g_trPair;
     RegSetValueExW(k, L"TrPair", 0, REG_DWORD, (const BYTE *)&v, sizeof(v));
+    v = (DWORD)(g_minimized ? 1 : 0);
+    RegSetValueExW(k, L"Minimized", 0, REG_DWORD, (const BYTE *)&v, sizeof(v));
     v = (DWORD)(g_pinBarOn ? 1 : 0);
     RegSetValueExW(k, L"PinBar", 0, REG_DWORD, (const BYTE *)&v, sizeof(v));
     for (i = 0; i < MAXSCUT; i++) {
@@ -3690,7 +3702,7 @@ static void LoadSettings(void) {
     if (RegQueryValueExW(k, L"Opacity", NULL, &type, (BYTE *)&v, &sz) == ERROR_SUCCESS
         && type == REG_DWORD) {
         g_opacity = (int)v;
-        if (g_opacity < 102) g_opacity = 102;
+        if (g_opacity < 25) g_opacity = 25;
         if (g_opacity > 255) g_opacity = 255;
     }
     sz = sizeof(v);
@@ -3725,6 +3737,10 @@ static void LoadSettings(void) {
     if (RegQueryValueExW(k, L"TrPair", NULL, &type, (BYTE *)&v, &sz) == ERROR_SUCCESS
         && type == REG_DWORD && (int)v >= 0 && (int)v < (int)NTRPAIR)
         g_trPair = (int)v;
+    sz = sizeof(v);
+    if (RegQueryValueExW(k, L"Minimized", NULL, &type, (BYTE *)&v, &sz) == ERROR_SUCCESS
+        && type == REG_DWORD)
+        g_minimized = v ? 1 : 0;
     sz = sizeof(v);
     if (RegQueryValueExW(k, L"PinBar", NULL, &type, (BYTE *)&v, &sz) == ERROR_SUCCESS
         && type == REG_DWORD)

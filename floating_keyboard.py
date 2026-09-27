@@ -402,7 +402,7 @@ class FloatKeyboard:
         self.root.geometry(f"+{e.x_root - self._dx}+{e.y_root - self._dy}")
 
     def _set_opacity(self, delta):
-        self.opacity = min(1.0, max(0.4, self.opacity + delta))
+        self.opacity = min(1.0, max(0.1, self.opacity + delta))
         try:
             self.root.attributes("-alpha", self.opacity)
         except tk.TclError:

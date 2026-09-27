@@ -198,6 +198,8 @@ Real shortcuts with mouse/touch only:
 - `Calc` = built-in calculator page (offline), `Tr` = ID→EN translate page
 - `Fn` = show/hide `Esc F1–F12` (Full mode only), `Compact`/`Full` = switch layouts
 - `✕` = close (far right). Closing releases held/locked modifiers.
+- `−` = minimize: collapses to the bar only (all keys hidden, bar stays
+  usable); tap again to restore. Opening any page un-minimizes.
 - Hold `Bksp`, `Del`, `Space`, or arrows to auto-repeat. Double-tap
   `Bksp` (within 0.4s) deletes the whole previous word.
 
