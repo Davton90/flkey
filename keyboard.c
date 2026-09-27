@@ -15,10 +15,13 @@
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
+#include <wininet.h>
 
 #ifdef _MSC_VER
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "gdi32.lib")
+#pragma comment(lib, "wininet.lib")
 #endif
 
 /* ---------------- SendInput helpers ---------------- */
@@ -76,10 +79,11 @@ static UINT char_to_vk(wchar_t lo) {
 
 /* ---------------- model ---------------- */
 typedef enum { K_CHAR, K_SPECIAL, K_MOD, K_CAPS, K_SPACE, K_PAGE, K_MACRO, K_SET,
-                 K_SUGG, K_CLIP, K_CNAV, K_SHCAP, K_SCUT, K_INFO } Kind;
+                 K_SUGG, K_CLIP, K_CNAV, K_SHCAP, K_SCUT, K_INFO, K_CALC } Kind;
 /* clip nav actions */
 enum { CNAV_UP=1, CNAV_DOWN, CNAV_CLEAR, CNAV_BACK, CNAV_PIN,
-       CNAV_SDEL, CNAV_SBACK, CNAV_SSTAR };
+       CNAV_SDEL, CNAV_SBACK, CNAV_SSTAR,
+       CNAV_TRPASTE, CNAV_TRCLEAR, CNAV_TRGO, CNAV_TRBACK };
 enum { M_OFF = 0, M_HELD = 1, M_LOCKED = 2 };
 enum { MX_SHIFT = 0, MX_CTRL = 1, MX_ALT = 2, MX_WIN = 3 };
 
@@ -96,7 +100,7 @@ typedef struct {
     RECT rc;
 } Key;
 
-#define MAXKEYS 160
+#define MAXKEYS 192
 static Key g_keys[MAXKEYS];
 static int g_nkeys = 0;
 
@@ -209,13 +213,15 @@ static UINT g_recVk = 0;
 static wchar_t g_recName[10];
 
 /* bar buttons: X at far right (Windows convention), gear at far left */
-enum { BAR_NONE=0, BAR_FN=1, BAR_STAR=2, BAR_MODE=3, BAR_X=4, BAR_GEAR=5, BAR_CLIP=6, BAR_SC=7 };
+enum { BAR_NONE=0, BAR_FN=1, BAR_STAR=2, BAR_MODE=3, BAR_X=4, BAR_GEAR=5, BAR_CLIP=6, BAR_SC=7, BAR_CALC=8, BAR_TR=9 };
 typedef struct { int id; wchar_t t[8]; RECT rc; int w; int show; int side; } BarBtn;
-static BarBtn g_bar[7] = {
+static BarBtn g_bar[9] = {
     { BAR_FN,   L"Fn",  {0}, 40, 1, 0 },
     { BAR_STAR, L"\u2605", {0}, 36, 1, 0 },
     { BAR_SC,   L"SC",  {0}, 36, 1, 0 },
     { BAR_CLIP, L"Clip", {0}, 40, 1, 0 },
+    { BAR_CALC, L"Calc", {0}, 40, 1, 0 },
+    { BAR_TR,   L"Tr",  {0}, 36, 1, 0 },
     { BAR_MODE, L"Compact", {0}, 58, 1, 0 },
     { BAR_X,    L"\u2715", {0}, 40, 1, 0 },
     { BAR_GEAR, L"\u2699", {0}, 36, 1, 1 },
@@ -243,7 +249,7 @@ static int PinSlotByBar(int i) {
 
 static void SetModeLabel(void) {
     int i;
-    for (i = 0; i < 7; i++) {
+    for (i = 0; i < 9; i++) {
         if (g_bar[i].id == BAR_MODE)
             wcscpy(g_bar[i].t, g_compact ? L"Full" : L"Compact");
         if (g_bar[i].id == BAR_FN)
@@ -485,6 +491,33 @@ static void BuildRecRow(void) {
     AddKey(L"", K_INFO, 0, 0, 0,0, 10.0f, 13);
 }
 
+/* calculator page (rows 40-45): display + keys, opened by Calc bar button */
+static void BuildCalcRows(void) {
+    AddKey(L"", K_INFO, 0, 0, 0,0, 10.0f, 40);
+    AddKey(L"C", K_CALC, (UINT)L'C', 0, 0,0, 1.2f, 41);
+    AddKey(L"(", K_CALC, (UINT)L'(', 0, 0,0, 1.0f, 41);
+    AddKey(L")", K_CALC, (UINT)L')', 0, 0,0, 1.0f, 41);
+    AddKey(L"%", K_CALC, (UINT)L'%', 0, 0,0, 1.0f, 41);
+    AddKey(L"^", K_CALC, (UINT)L'^', 0, 0,0, 1.0f, 41);
+    AddKey(L"\u232B", K_CALC, (UINT)L'B', 0, 0,0, 1.2f, 41);
+    AddKey(L"7", K_CALC, (UINT)L'7', 0, 0,0, 1.0f, 42);
+    AddKey(L"8", K_CALC, (UINT)L'8', 0, 0,0, 1.0f, 42);
+    AddKey(L"9", K_CALC, (UINT)L'9', 0, 0,0, 1.0f, 42);
+    AddKey(L"/", K_CALC, (UINT)L'/', 0, 0,0, 1.0f, 42);
+    AddKey(L"4", K_CALC, (UINT)L'4', 0, 0,0, 1.0f, 43);
+    AddKey(L"5", K_CALC, (UINT)L'5', 0, 0,0, 1.0f, 43);
+    AddKey(L"6", K_CALC, (UINT)L'6', 0, 0,0, 1.0f, 43);
+    AddKey(L"*", K_CALC, (UINT)L'*', 0, 0,0, 1.0f, 43);
+    AddKey(L"1", K_CALC, (UINT)L'1', 0, 0,0, 1.0f, 44);
+    AddKey(L"2", K_CALC, (UINT)L'2', 0, 0,0, 1.0f, 44);
+    AddKey(L"3", K_CALC, (UINT)L'3', 0, 0,0, 1.0f, 44);
+    AddKey(L"-", K_CALC, (UINT)L'-', 0, 0,0, 1.0f, 44);
+    AddKey(L"0", K_CALC, (UINT)L'0', 0, 0,0, 1.0f, 45);
+    AddKey(L".", K_CALC, (UINT)L'.', 0, 0,0, 1.0f, 45);
+    AddKey(L"=", K_CALC, (UINT)L'=', 0, 0,0, 2.0f, 45);
+    AddKey(L"+", K_CALC, (UINT)L'+', 0, 0,0, 1.0f, 45);
+}
+
 /* pinned-shortcut strip (row 14): starred slots, like the suggestion strip.
  * Tap fires; membership rebuilt on every star change. */
 static void BuildPinRow(void) {
@@ -495,6 +528,17 @@ static void BuildPinRow(void) {
         AddKey(g_sc[s].name[0] ? g_sc[s].name : L"?", K_SCUT, (UINT)s,
                0, 0,0, 2.0f, 14);
     }
+}
+
+/* translate page (rows 50-51): ID input display + Paste/Clear/Go/Keys.
+ * Type Indonesian via the keys (tapping the display arms typing), or
+ * Paste it from the clipboard, then Go types the English result. */
+static void BuildTrRows(void) {
+    AddKey(L"", K_INFO, 0, 0, 0,0, 10.0f, 50);
+    AddKey(L"Paste", K_CNAV, CNAV_TRPASTE, 0, 0,0, 1.5f, 51);
+    AddKey(L"Clear", K_CNAV, CNAV_TRCLEAR, 0, 0,0, 1.5f, 51);
+    AddKey(L"Go", K_CNAV, CNAV_TRGO, 0, 0,0, 1.5f, 51);
+    AddKey(L"Keys", K_CNAV, CNAV_TRBACK, 0, 0,0, 1.5f, 51);
 }
 
 /* word suggestions (row 12), labels drawn live from g_sugg */
@@ -531,6 +575,8 @@ static void BuildPanels(void) {
     BuildSCRows();
     BuildRecRow();
     BuildPinRow();
+    BuildCalcRows();
+    BuildTrRows();
 }
 
 static void BuildKeys(void) {
@@ -1236,9 +1282,13 @@ static void OnClipboardUpdate(void) {
                     wcsncpy(e.text, s, n);
                     e.text[n] = 0;
                     e.isImg = 0;
-                    if (ClipPrepend(&e) && g_viewClip)
-                        InvalidateRect(g_hwnd, NULL, FALSE);
-                    else if (e.text) free(e.text);
+                    /* return 1 = list owns e.text now: must NOT free it */
+                    if (ClipPrepend(&e)) {
+                        if (g_viewClip)
+                            InvalidateRect(g_hwnd, NULL, FALSE);
+                    } else if (e.text) {
+                        free(e.text);
+                    }
                 }
             }
             if (s) GlobalUnlock(d);
@@ -1290,9 +1340,13 @@ static void OnClipboardUpdate(void) {
             }
             if (dib) {
                 e.isImg = 1; e.hbmp = dib; e.iw = sw; e.ih = sh;
-                if (ClipPrepend(&e) && g_viewClip)
-                    InvalidateRect(g_hwnd, NULL, FALSE);
-                else { DeleteObject(dib); }
+                /* return 1 = list owns dib now: must NOT delete it */
+                if (ClipPrepend(&e)) {
+                    if (g_viewClip)
+                        InvalidateRect(g_hwnd, NULL, FALSE);
+                } else {
+                    DeleteObject(dib);
+                }
             }
         }
     }
@@ -1940,11 +1994,422 @@ static void ResolvePopup(void) {
     }
 }
 
+/* ---------------- auto-translate ID->EN (online) -------------------- */
+/* Method (researched): free Google endpoint, no API key, via WinINet
+ * (system lib, inherits IE/Edge proxy). Translated in a worker thread
+ * so the keyboard never freezes; result is typed at the caret.
+ *   GET https://clients5.google.com/translate_a/t?client=dict-chrome-ex
+ *       &sl=id&tl=en&q=<url-encoded UTF-8>
+ * Response is a JSON array: flat ["text"] or nested [[t,s,...],...];
+ * the first string of each element concatenates to the translation. */
+#define TR_MAXSRC 200
+#define WM_APP_TRDONE (WM_APP + 7)
+
+static void InvRec(void);   /* forward: record/translate banner repaint */
+
+static int g_viewTr = 0;        /* translate page (like g_viewClip) */
+static int g_trArm = 0;         /* typing Indonesian on keys view */
+static int g_trBusy = 0;        /* worker thread in flight */
+static int g_trStatus = 0;      /* 0 idle, 1 busy, 2 done, 3 failed */
+static wchar_t g_trBuf[TR_MAXSRC + 1];
+static wchar_t g_trOut[128];    /* result preview */
+
+/* percent-encode wchar string as UTF-8; returns bytes written (no NUL) */
+static int UrlEncode(const wchar_t *src, char *dst, int dstN) {
+    char utf8[TR_MAXSRC * 3 + 1];
+    int ulen, i, o = 0;
+    static const char *hex = "0123456789ABCDEF";
+    ulen = WideCharToMultiByte(CP_UTF8, 0, src, -1, utf8, sizeof(utf8),
+                               NULL, NULL);
+    if (ulen <= 1) return 0;
+    ulen--;   /* drop NUL */
+    for (i = 0; i < ulen && o + 4 < dstN; i++) {
+        unsigned char c = (unsigned char)utf8[i];
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+            (c >= '0' && c <= '9') || c == '-' || c == '_' ||
+            c == '.' || c == '~') {
+            dst[o++] = (char)c;
+        } else {
+            dst[o++] = '%';
+            dst[o++] = hex[c >> 4];
+            dst[o++] = hex[c & 15];
+        }
+    }
+    return o;
+}
+
+/* collect translation segments from the JSON array body.
+ * Handles flat ["text"] and nested [[t,s,...],...] shapes: a top-level
+ * string counts while no sub-array was seen; inside, each sub-array's
+ * first string counts (later strings are sources/metadata like "en").
+ * Returns 1 when at least one segment was extracted. */
+static int TrParseJson(const char *js, size_t len, wchar_t *out, int outN) {
+    int depth = 0, elem[8], got = 0, o = 0, i, flat = 1;
+    size_t u = 0;
+    for (i = 0; i < 8; i++) elem[i] = 0;
+    out[0] = 0;
+    while (u < len && o + 1 < outN) {
+        char c = js[u];
+        if (c == '[') {
+            if (depth == 1) flat = 0;   /* a nested array: not flat shape */
+            if (depth < 7) { depth++; elem[depth] = 0; }
+            u++;
+        } else if (c == ']') {
+            if (depth > 0) depth--;
+            u++;
+        } else if (c == '"') {
+            int isFirst, take = 0;
+            u++;   /* opening quote */
+            isFirst = (elem[depth] == 0);
+            elem[depth]++;
+            if (depth == 1 && flat) take = 1;
+            else if (depth >= 2 && isFirst) take = 1;
+            if (take && o + 1 < outN) {
+                /* a translation segment: decode with unescape */
+                while (u < len && js[u] != '"' && o + 1 < outN) {
+                    if (js[u] == '\\' && u + 1 < len) {
+                        char e = js[u + 1];
+                        if (e == 'u' && u + 5 < len) {
+                            int k, v = 0, ok = 1;
+                            for (k = 0; k < 4; k++) {
+                                char h = js[u + 2 + k];
+                                v <<= 4;
+                                if (h >= '0' && h <= '9') v |= h - '0';
+                                else if (h >= 'a' && h <= 'f') v |= h - 'a' + 10;
+                                else if (h >= 'A' && h <= 'F') v |= h - 'A' + 10;
+                                else ok = 0;
+                            }
+                            if (!ok) break;
+                            u += 6;
+                            if (v >= 0xD800 && v <= 0xDBFF && u + 5 < len &&
+                                js[u] == '\\' && js[u + 1] == 'u') {
+                                int k2, w = 0, ok2 = 1;   /* surrogate pair */
+                                for (k2 = 0; k2 < 4; k2++) {
+                                    char h = js[u + 2 + k2];
+                                    w <<= 4;
+                                    if (h >= '0' && h <= '9') w |= h - '0';
+                                    else if (h >= 'a' && h <= 'f') w |= h - 'a' + 10;
+                                    else if (h >= 'A' && h <= 'F') w |= h - 'A' + 10;
+                                    else ok2 = 0;
+                                }
+                                if (ok2 && w >= 0xDC00 && w <= 0xDFFF &&
+                                    o + 2 < outN) {
+                                    out[o++] = (wchar_t)v;
+                                    out[o++] = (wchar_t)w;
+                                    u += 6;
+                                    got = 1;
+                                    continue;
+                                }
+                            }
+                            out[o++] = (wchar_t)v;
+                            got = 1;
+                        } else {
+                            if (e == 'n') out[o++] = L'\n';
+                            else if (e == 't') out[o++] = L'\t';
+                            else if (e == 'r') out[o++] = L'\r';
+                            else out[o++] = (wchar_t)e;   /* " \\ / etc. */
+                            u += 2;
+                            got = 1;
+                        }
+                    } else {
+                        out[o++] = (wchar_t)(unsigned char)js[u++];
+                        got = 1;
+                    }
+                }
+                if (u < len && js[u] == '"') u++;
+            } else {
+                /* skip non-translation string */
+                while (u < len && js[u] != '"') {
+                    if (js[u] == '\\' && u + 1 < len) u += 2;
+                    else u++;
+                }
+                if (u < len) u++;
+            }
+        } else u++;
+    }
+    out[o] = 0;
+    return got;
+}
+
+typedef struct { wchar_t text[TR_MAXSRC + 1]; } TrJob;
+
+static DWORD WINAPI TrThread(LPVOID param) {
+    TrJob *job = (TrJob *)param;
+    HINTERNET hs = NULL, hu = NULL;
+    char enc[TR_MAXSRC * 9 + 1];
+    char url[TR_MAXSRC * 9 + 256];
+    char *resp = NULL;
+    DWORD cap = 0, len = 0, rd = 0;
+    int enclen, ok = 0;
+    wchar_t *wout = NULL;
+    enclen = UrlEncode(job->text, enc, sizeof(enc));
+    enc[enclen] = 0;
+    if (!enclen) goto done;
+    wsprintfA(url, "https://clients5.google.com/translate_a/t"
+                   "?client=dict-chrome-ex&sl=id&tl=en&q=%s", enc);
+    hs = InternetOpenW(L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                       L"AppleWebKit/537.36 (KHTML, like Gecko) "
+                       L"Chrome/120.0 Safari/537.36",
+                       INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
+    if (!hs) goto done;
+    {
+        wchar_t wurl[4096];
+        int n = MultiByteToWideChar(CP_ACP, 0, url, -1, wurl, 4096);
+        if (n <= 0) goto done;
+        hu = InternetOpenUrlW(hs, wurl, NULL, 0,
+                              INTERNET_FLAG_RELOAD |
+                              INTERNET_FLAG_NO_CACHE_WRITE, 0);
+        if (!hu) goto done;
+    }
+    cap = 16384;
+    resp = (char *)malloc(cap);
+    if (!resp) goto done;
+    for (;;) {
+        if (len + 4096 > cap) break;
+        if (!InternetReadFile(hu, resp + len, 4096, &rd) || rd == 0) break;
+        len += rd;
+    }
+    if (len > 0) {
+        wout = (wchar_t *)malloc(2001 * sizeof(wchar_t));
+        if (wout && TrParseJson(resp, len, wout, 2001) && wout[0])
+            ok = 1;
+        else if (wout) { free(wout); wout = NULL; }
+    }
+done:
+    if (resp) free(resp);
+    if (hu) InternetCloseHandle(hu);
+    if (hs) InternetCloseHandle(hs);
+    free(job);
+    /* wout ownership passes to the UI thread (NULL = failed) */
+    PostMessageW(g_hwnd, WM_APP_TRDONE, (WPARAM)ok, (LPARAM)wout);
+    return 0;
+}
+
+static void InvTr(void) {
+    int i;
+    for (i = 0; i < g_nkeys; i++)
+        if (g_keys[i].row == 50 || g_keys[i].row == 51) InvKey(i);
+}
+
+static void TrGo(void) {
+    TrJob *job;
+    HANDLE th;
+    if (g_trBusy || !g_trBuf[0]) return;
+    job = (TrJob *)malloc(sizeof(TrJob));
+    if (!job) return;
+    wcscpy(job->text, g_trBuf);
+    g_trBusy = 1; g_trStatus = 1;
+    InvTr();
+    th = CreateThread(NULL, 0, TrThread, job, 0, NULL);
+    if (!th) { free(job); g_trBusy = 0; g_trStatus = 3; InvTr(); return; }
+    CloseHandle(th);
+}
+
+/* keystrokes while typing Indonesian on the keys view: swallowed into
+ * the translate buffer, nothing is sent. Returns 1 when handled. */
+static int TrKey(int idx) {
+    Key *k = &g_keys[idx];
+    if (k->kind == K_MOD) {
+        int m = k->mod;
+        g_mods[m] = (g_mods[m] == M_OFF) ? M_HELD : M_OFF;
+        InvMod(m);
+        return 1;
+    }
+    if (k->kind == K_SHCAP) {
+        g_mods[MX_SHIFT] = (g_mods[MX_SHIFT] == M_OFF) ? M_HELD : M_OFF;
+        InvMod(MX_SHIFT); ShcapRefresh();
+        return 1;
+    }
+    if (k->kind == K_CHAR) {
+        size_t L = wcslen(g_trBuf);
+        if (L < TR_MAXSRC) {
+            g_trBuf[L] = ShiftedFor(k->lo) ? k->hi : k->lo;
+            g_trBuf[L + 1] = 0;
+            g_trStatus = 0;
+            InvRec();
+        }
+        return 1;
+    }
+    if (k->kind == K_SPACE) {
+        size_t L = wcslen(g_trBuf);
+        if (L < TR_MAXSRC && L > 0) {
+            g_trBuf[L] = L' '; g_trBuf[L + 1] = 0;
+            g_trStatus = 0;
+            InvRec();
+        }
+        return 1;
+    }
+    if (k->kind == K_SPECIAL) {
+        if (k->vk == VK_BACK) {
+            size_t L = wcslen(g_trBuf);
+            if (L) { g_trBuf[L - 1] = 0; g_trStatus = 0; InvRec(); }
+        } else if (k->vk == VK_RETURN || k->vk == VK_ESCAPE) {
+            int i;
+            g_trArm = 0;
+            for (i = 0; i < 4; i++)
+                if (g_mods[i] != M_OFF) { g_mods[i] = M_OFF; InvMod(i); }
+            g_viewTr = 1;
+            ResizeForScale();
+        }
+        return 1;
+    }
+    return 1;
+}
+
 static void ToggleMod(int m) {
     if (g_mods[m] == M_OFF) { g_mods[m] = M_HELD; vk_down(MODVK[m]); }
     else if (g_mods[m] == M_HELD) g_mods[m] = M_LOCKED;
     else { g_mods[m] = M_OFF; vk_up(MODVK[m]); }
     InvMod(m);
+}
+
+/* ---------------- built-in calculator (offline) --------------------- */
+/* Expression grammar: + - * / % ^, parens, decimals, unary minus.
+ * ^ is right-associative. Pure function: fully unit-testable. */
+typedef struct { const wchar_t *p; int err; } CParser;
+
+static void c_skip(CParser *c) {
+    while (*c->p == L' ' || *c->p == L'\t') c->p++;
+}
+static double c_expr(CParser *c);
+static double c_number(CParser *c) {
+    double v = 0, f = 0.1;
+    int got = 0;
+    c_skip(c);
+    while (*c->p >= L'0' && *c->p <= L'9') {
+        v = v * 10 + (*c->p - L'0'); c->p++; got = 1;
+    }
+    if (*c->p == L'.') {
+        c->p++;
+        while (*c->p >= L'0' && *c->p <= L'9') {
+            v += (*c->p - L'0') * f; f *= 0.1; c->p++; got = 1;
+        }
+    }
+    if (!got) c->err = 1;
+    return v;
+}
+static double c_base(CParser *c) {
+    double v;
+    c_skip(c);
+    if (*c->p == L'(') {
+        c->p++;
+        v = c_expr(c);
+        c_skip(c);
+        if (*c->p == L')') c->p++;
+        else c->err = 1;
+        return v;
+    }
+    if (*c->p == L'-') { c->p++; return -c_base(c); }
+    if (*c->p == L'+') { c->p++; return c_base(c); }
+    return c_number(c);
+}
+static double c_factor(CParser *c) {
+    double v = c_base(c);
+    c_skip(c);
+    if (*c->p == L'^') {
+        double e;
+        c->p++;
+        e = c_factor(c);
+        v = pow(v, e);
+    }
+    return v;
+}
+static double c_term(CParser *c) {
+    double v = c_factor(c);
+    for (;;) {
+        c_skip(c);
+        if (*c->p == L'*') { c->p++; v *= c_factor(c); }
+        else if (*c->p == L'/') {
+            double d;
+            c->p++;
+            d = c_factor(c);
+            if (d == 0) { c->err = 1; return 0; }
+            v /= d;
+        } else if (*c->p == L'%') {
+            double d;
+            c->p++;
+            d = c_factor(c);
+            if (d == 0) { c->err = 1; return 0; }
+            v = fmod(v, d);
+        } else return v;
+    }
+}
+static double c_expr(CParser *c) {
+    double v = c_term(c);
+    for (;;) {
+        c_skip(c);
+        if (*c->p == L'+') { c->p++; v += c_term(c); }
+        else if (*c->p == L'-') { c->p++; v -= c_term(c); }
+        else return v;
+    }
+}
+static int CalcEval(const wchar_t *s, double *out) {
+    CParser c;
+    double v;
+    if (!s || !*s) return 0;
+    c.p = s; c.err = 0;
+    v = c_expr(&c);
+    c_skip(&c);
+    if (c.err || *c.p || v != v || v == HUGE_VAL || v == -HUGE_VAL) return 0;
+    *out = v;
+    return 1;
+}
+static void FormatNum(double v, wchar_t *out) {
+    if (v == 0) v = 0;   /* normalize -0 */
+    swprintf(out, 32, L"%.10g", v);
+}
+
+static wchar_t g_calcBuf[64];
+static wchar_t g_calcLive[32];
+static int g_calcLiveOn = 0, g_calcErr = 0;
+static int g_viewCalc = 0;   /* calculator page (like g_viewClip) */
+
+static void InvCalc(void) {
+    int i;
+    for (i = 0; i < g_nkeys; i++)
+        if (g_keys[i].row >= 40 && g_keys[i].row <= 45) InvKey(i);
+}
+static void CalcLive(void) {
+    double v;
+    g_calcLiveOn = CalcEval(g_calcBuf, &v);
+    if (g_calcLiveOn) FormatNum(v, g_calcLive);
+}
+/* = key: insert result into the focused app, keep it for chaining */
+static void CommitCalc(void) {
+    double v;
+    if (!CalcEval(g_calcBuf, &v)) {
+        g_calcErr = 1; g_calcLiveOn = 0; InvCalc(); return;
+    }
+    {
+        wchar_t res[32];
+        const wchar_t *p;
+        FormatNum(v, res);
+        EnsureFocus();
+        type_unicode(res);
+        for (p = res; *p; p++) WordChar(*p);
+        ConsumeHeld();
+        InvSugg();
+        wcscpy(g_calcBuf, res);
+        g_calcErr = 0; g_calcLiveOn = 0;
+        InvCalc();
+    }
+}
+static void CalcKey(wchar_t ch) {
+    if (ch == L'C') {
+        g_calcBuf[0] = 0; g_calcErr = 0; g_calcLiveOn = 0; InvCalc(); return;
+    }
+    if (ch == L'B') {
+        size_t L = wcslen(g_calcBuf);
+        if (L) g_calcBuf[L - 1] = 0;
+        g_calcErr = 0; CalcLive(); InvCalc(); return;
+    }
+    if (ch == L'=') { CommitCalc(); return; }
+    if (g_calcErr) { g_calcBuf[0] = 0; g_calcErr = 0; }
+    {
+        size_t L = wcslen(g_calcBuf);
+        if (L < 63) { g_calcBuf[L] = ch; g_calcBuf[L + 1] = 0; }
+    }
+    CalcLive(); InvCalc();
 }
 
 static BOOL IsRepeatable(UINT vk) {
@@ -2180,6 +2645,14 @@ static void PressKey(int idx) {
         InvKey(idx);
         return;
     }
+    /* translate typing mode: keystrokes go to the ID buffer, not the app */
+    if (g_trArm && !g_viewTr && !g_viewClip && !g_viewSC && !g_viewCalc &&
+        idx >= 0 && idx < g_nkeys && TrKey(idx)) {
+        g_pressed = idx;
+        SetTimer(g_hwnd, TIMER_FLASH, 80, NULL);
+        InvKey(idx);
+        return;
+    }
     k = &g_keys[idx];
     /* any key other than Backspace cancels a pending double-tap window */
     if (!(k->kind == K_SPECIAL && k->vk == VK_BACK)) g_bkspLastUp = 0;
@@ -2219,6 +2692,35 @@ static void PressKey(int idx) {
             g_viewSC = 0;
             g_scDelArm = 0;
             g_starArm = 0;
+            ResizeForScale();
+            InvalidateRect(g_hwnd, NULL, TRUE);
+            return;
+        }
+        else if (k->vk == CNAV_TRPASTE) {
+            /* load clipboard text as the Indonesian source */
+            if (!g_trBusy && OpenClipboard(g_hwnd)) {
+                HANDLE d = GetClipboardData(CF_UNICODETEXT);
+                if (d) {
+                    const wchar_t *s = (const wchar_t *)GlobalLock(d);
+                    if (s && s[0]) {
+                        wcsncpy(g_trBuf, s, TR_MAXSRC);
+                        g_trBuf[TR_MAXSRC] = 0;
+                        g_trStatus = 0;
+                    }
+                    if (s) GlobalUnlock(d);
+                }
+                CloseClipboard();
+            }
+        }
+        else if (k->vk == CNAV_TRCLEAR) {
+            if (!g_trBusy) {
+                g_trBuf[0] = 0; g_trStatus = 0; g_trOut[0] = 0;
+            }
+        }
+        else if (k->vk == CNAV_TRGO) { TrGo(); }
+        else if (k->vk == CNAV_TRBACK) {
+            g_viewTr = 0;
+            g_trArm = 0;
             ResizeForScale();
             InvalidateRect(g_hwnd, NULL, TRUE);
             return;
@@ -2266,7 +2768,19 @@ static void PressKey(int idx) {
         RunMacro(g_sc[s].mods, g_sc[s].vk);
         return;
     }
-    if (k->kind == K_INFO) return;   /* record banner: display only */
+    if (k->kind == K_INFO) {
+        /* Tr page display tap: type Indonesian on the keys view */
+        if (g_viewTr && !g_trBusy) {
+            int i;
+            for (i = 0; i < 4; i++)
+                if (g_mods[i] != M_OFF) { vk_up(MODVK[i]); g_mods[i] = M_OFF; InvMod(i); }
+            g_trArm = 1;
+            g_viewTr = 0;
+            ResizeForScale();   /* typing banner appears */
+        }
+        return;   /* record banner: display only */
+    }
+    if (k->kind == K_CALC) { CalcKey((wchar_t)k->vk); return; }
     if (k->kind == K_SET) { DoSetAction((int)k->vk); return; }
     if (k->kind == K_PAGE) {
         RECT cl;
@@ -2344,7 +2858,7 @@ static void ComputeLayout(int cw, int ch) {
     int y, avail, rh, x;
     /* bar buttons: side 0 packs from right (X at far right), side 1 from left */
     x = cw - pad;
-    for (i = 5; i >= 0; i--) {
+    for (i = 7; i >= 0; i--) {
         if (!g_bar[i].show) {
             SetRectEmpty(&g_bar[i].rc);
         } else {
@@ -2355,7 +2869,7 @@ static void ComputeLayout(int cw, int ch) {
         }
     }
     x = pad;
-    for (i = 6; i < 7; i++) {
+    for (i = 8; i < 9; i++) {
         if (!g_bar[i].show) { SetRectEmpty(&g_bar[i].rc); continue; }
         int w = (int)(g_bar[i].w * g_scale);
         g_bar[i].rc.left = x; g_bar[i].rc.right = x + w;
@@ -2367,9 +2881,13 @@ static void ComputeLayout(int cw, int ch) {
         for (r = 20; r <= 25; r++) rows[nrows++] = r;
     } else if (g_viewSC) {
         for (r = 30; r <= 32; r++) rows[nrows++] = r;
+    } else if (g_viewCalc) {
+        for (r = 40; r <= 45; r++) rows[nrows++] = r;
+    } else if (g_viewTr) {
+        for (r = 50; r <= 51; r++) rows[nrows++] = r;
     } else {
-    /* record banner first, then panels, pin strip, suggestions, keys */
-    if (g_recSlot >= 0) rows[nrows++] = 13;
+    /* record/translate banner first, then panels, pin strip, suggestions, keys */
+    if (g_recSlot >= 0 || g_trArm) rows[nrows++] = 13;
     if (g_showSettings) rows[nrows++] = 10;
     if (g_showMacros) rows[nrows++] = 11;
     if (g_pinBarOn && StarCount() > 0) rows[nrows++] = 14;
@@ -2420,10 +2938,12 @@ static int VisibleRow(int row) {
     /* clip / shortcut views are exclusive: NOTHING else is hittable there */
     if (g_viewClip) return (row >= 20 && row <= 25);
     if (g_viewSC) return (row >= 30 && row <= 32);
+    if (g_viewCalc) return (row >= 40 && row <= 45);
+    if (g_viewTr) return (row >= 50 && row <= 51);
     if (row == 10) return g_showSettings;
     if (row == 11) return g_showMacros;
     if (row == 12) return SuggRowOn();
-    if (row == 13) return (g_recSlot >= 0);
+    if (row == 13) return (g_recSlot >= 0 || g_trArm);
     if (row == 14) return g_pinBarOn && (StarCount() > 0);
     if (row >= 20) return 0;
     if (g_compact) return 1;
@@ -2448,7 +2968,7 @@ static void InvCaps(void) {
 }
 static void InvBar(int id) {
     int i;
-    for (i = 0; i < 7; i++)
+    for (i = 0; i < 9; i++)
         if (g_bar[i].id == id) InvalidateRect(g_hwnd, &g_bar[i].rc, FALSE);
 }
 
@@ -2618,8 +3138,44 @@ static void PaintKey(HDC dc, Key *k, int idx) {
         }
         return;
     } else if (k->kind == K_INFO) {
-        /* shortcut-record banner, text drawn live */
-        wchar_t msg[64];
+        /* calculator display, translate page/status, or record banner */
+        wchar_t msg[128];
+        SelectObject(dc, g_fKey);
+        SetTextColor(dc, C_TXT);
+        if (g_viewCalc) {
+            if (g_calcErr) wcscpy(msg, L"Error");
+            else if (!g_calcBuf[0]) wcscpy(msg, L"0");
+            else if (g_calcLiveOn) wsprintfW(msg, L"%ls = %ls",
+                                            g_calcBuf, g_calcLive);
+            else wcscpy(msg, g_calcBuf);
+            DrawTextW(dc, msg, -1, &k->rc,
+                      DT_RIGHT|DT_VCENTER|DT_SINGLELINE);
+            return;
+        }
+        if (g_viewTr) {
+            /* ID input / translation status, truncated to fit */
+            wchar_t src[48];
+            if (g_trStatus == 1) wcscpy(msg, L"\u2026");
+            else if (g_trStatus == 3) wcscpy(msg, L"offline?");
+            else if (g_trStatus == 2 && g_trOut[0]) {
+                wcsncpy(msg, g_trOut, 40); msg[40] = 0;
+            } else if (g_trBuf[0]) {
+                wcsncpy(src, g_trBuf, 40); src[40] = 0;
+                wsprintfW(msg, L"ID> %ls", src);
+                if (wcslen(g_trBuf) > 40) wcscat(msg, L"\u2026");
+            } else wcscpy(msg, L"tap here to type, or Paste");
+            DrawTextW(dc, msg, -1, &k->rc,
+                      DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+            return;
+        }
+        if (g_trArm) {
+            wchar_t tb[48];
+            wcsncpy(tb, g_trBuf, 40); tb[40] = 0;
+            wsprintfW(msg, L"ID> %ls (Enter done)", tb);
+            DrawTextW(dc, msg, -1, &k->rc,
+                      DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+            return;
+        }
         SelectObject(dc, g_fSmall);
         if (g_recStep == 0) {
             wsprintfW(msg, L"\u25CF REC %d: tap modifiers+key (SC cancels)",
@@ -2687,7 +3243,7 @@ static void OnPaint(void) {
         DeleteObject(b);
         SetBkMode(dc, TRANSPARENT);
         SelectObject(dc, g_fBar);
-        for (i = 0; i < 7; i++) {
+        for (i = 0; i < 9; i++) {
             if (!g_bar[i].show) continue;
             FillRR(dc, &g_bar[i].rc, (g_bar[i].id==g_downIdx-1000)?C_ACTIVE:C_SPEC);
             SetTextColor(dc, C_TXT);
@@ -2721,7 +3277,7 @@ static void OnPaint(void) {
 static int HitBar(int x, int y) {
     int i;
     POINT p = {x, y};
-    for (i = 0; i < 7; i++)
+    for (i = 0; i < 9; i++)
         if (g_bar[i].show && PtInRect(&g_bar[i].rc, p)) return g_bar[i].id;
     return BAR_NONE;
 }
@@ -2741,8 +3297,10 @@ static int NRows(void) {
     int n;
     if (g_viewClip) return 6;
     if (g_viewSC) return 3;
+    if (g_viewCalc) return 6;
+    if (g_viewTr) return 2;
     n = g_compact ? 4 : (g_showFn ? 6 : 5);
-    if (g_recSlot >= 0) n += 1;   /* record banner above the keys */
+    if (g_recSlot >= 0 || g_trArm) n += 1;   /* record banner above the keys */
     if (!g_viewClip && !g_viewSC && g_pinBarOn && StarCount() > 0) n += 1;   /* pin strip */
     if (g_showSettings || g_showMacros) n += 1;
     if (SuggRowOn()) n += 1;
@@ -2783,17 +3341,17 @@ static void DoBar(int id) {
             break;
         case BAR_GEAR:
             g_showSettings = !g_showSettings;
-            if (g_showSettings) { g_showMacros = 0; g_viewClip = 0; g_viewSC = 0; }
+            if (g_showSettings) { g_showMacros = 0; g_viewClip = 0; g_viewSC = 0; g_viewCalc = 0; g_viewTr = 0; }
             ResizeForScale();
             break;
         case BAR_STAR:
             g_showMacros = !g_showMacros;
-            if (g_showMacros) { g_showSettings = 0; g_viewClip = 0; g_viewSC = 0; }
+            if (g_showMacros) { g_showSettings = 0; g_viewClip = 0; g_viewSC = 0; g_viewCalc = 0; g_viewTr = 0; }
             ResizeForScale();
             break;
         case BAR_CLIP:
             g_viewClip = !g_viewClip;
-            if (g_viewClip) { g_showSettings = 0; g_showMacros = 0; g_viewSC = 0; }
+            if (g_viewClip) { g_showSettings = 0; g_showMacros = 0; g_viewSC = 0; g_viewCalc = 0; g_viewTr = 0; }
             else g_pinArm = 0;
             g_clipOff = 0;
             ResizeForScale();
@@ -2802,9 +3360,25 @@ static void DoBar(int id) {
             if (g_recSlot >= 0) CancelRecord();
             g_viewSC = !g_viewSC;
             if (g_viewSC) {
-                g_showSettings = 0; g_showMacros = 0; g_viewClip = 0;
+                g_showSettings = 0; g_showMacros = 0; g_viewClip = 0; g_viewCalc = 0; g_viewTr = 0;
                 g_pinArm = 0;
             } else { g_scDelArm = 0; g_starArm = 0; }
+            ResizeForScale();
+            break;
+        case BAR_CALC:
+            g_viewCalc = !g_viewCalc;
+            if (g_viewCalc) {
+                g_showSettings = 0; g_showMacros = 0; g_viewClip = 0; g_viewSC = 0; g_viewTr = 0;
+                g_pinArm = 0;
+            }
+            ResizeForScale();
+            break;
+        case BAR_TR:
+            g_viewTr = !g_viewTr;
+            if (g_viewTr) {
+                g_showSettings = 0; g_showMacros = 0; g_viewClip = 0; g_viewSC = 0; g_viewCalc = 0;
+                g_pinArm = 0;
+            } else g_trArm = 0;
             ResizeForScale();
             break;
         case BAR_MODE:
@@ -2997,6 +3571,28 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         case WM_CLIPBOARDUPDATE:
             OnClipboardUpdate();
             return 0;
+        case WM_APP_TRDONE: {
+            /* worker thread finished: type the English result at the caret */
+            int ok = (int)w;
+            wchar_t *res = (wchar_t *)l;
+            const wchar_t *p;
+            g_trBusy = 0;
+            if (ok && res && res[0]) {
+                g_trStatus = 2;
+                wcsncpy(g_trOut, res, 127);
+                g_trOut[127] = 0;
+                EnsureFocus();
+                type_unicode(res);
+                for (p = res; *p; p++) WordChar(*p);
+                ConsumeHeld();
+                InvSugg();
+            } else {
+                g_trStatus = 3;   /* offline / API error */
+            }
+            if (res) free(res);
+            InvTr();
+            return 0;
+        }
         case WM_SIZE: {
             int cw = LOWORD(l), ch = HIWORD(l);
             ComputeLayout(cw, ch);

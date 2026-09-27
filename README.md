@@ -52,6 +52,25 @@ asli, gaya HP). Kata yang tidak cocok awalan kamus mana pun tampil
 Panel `⚙`: `Auto` dan `Spell` menyalakan/mematikan keduanya (tersimpan di
 registry). Bekerja untuk ketikan lewat FloatKeys, ID maupun EN.
 
+## Kalkulator built-in (tombol `Calc`, offline)
+
+Halaman sendiri: ketik ekspresi (`12*8`, `(1+2)*(3+4)`, `10%3`,
+`2^3`, `-5+2`), hasil live tampil di display, `=` mengetik hasilnya
+ke aplikasi (dan bisa dilanjut operasinya). Mendukung `+ - * / % ^`,
+kurung, desimal, minus unari. Salah ketik → `C`/`⌫`, pembagian nol →
+`Error`. Tanpa internet, tanpa dependensi.
+
+## Auto-translate Indonesia→Inggris (tombol `Tr`, online)
+
+Metode (hasil riset): endpoint gratis Google tanpa API key
+(`clients5.google.com/translate_a/t?client=dict-chrome-ex`), diakses
+via WinINet bawaan Windows (ikut proxy IE/Edge) di worker thread agar
+keyboard tidak beku. Cara pakai: buka halaman `Tr`, ketuk display
+untuk mengetik bahasa Indonesia (atau `Paste` dari clipboard), ketuk
+`Go` — hasil Inggris diketik otomatis di posisi kursor. `...` =
+menerjemahkan, `offline?` = tidak ada internet/API gagal. Butuh
+internet; endpoint tidak resmi (bisa kena rate-limit bila dispam).
+
 ## Custom shortcuts (tombol `SC`)
 
 Halaman sendiri seperti Clip, berisi 10 slot. Ketuk slot bernama untuk
@@ -172,6 +191,7 @@ Real shortcuts with mouse/touch only:
   `Pin` pin window on top, `★` show/hide pinned-shortcut strip, `Done`
 - `★` = one-tap shortcut panel: Copy Paste Cut Undo Save All AltTab Shot Lock
 - `SC` = custom shortcuts page: 10 user-recorded combos (tap `+` to record)
+- `Calc` = built-in calculator page (offline), `Tr` = ID→EN translate page
 - `Fn` = show/hide `Esc F1–F12` (Full mode only), `Compact`/`Full` = switch layouts
 - `✕` = close (far right). Closing releases held/locked modifiers.
 - Hold `Bksp`, `Del`, `Space`, or arrows to auto-repeat. Double-tap
