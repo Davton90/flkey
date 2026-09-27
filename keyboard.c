@@ -15,6 +15,7 @@
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <math.h>
 #include <wininet.h>
 
@@ -85,7 +86,7 @@ typedef enum { K_CHAR, K_SPECIAL, K_MOD, K_CAPS, K_SPACE, K_PAGE, K_MACRO, K_SET
 /* clip nav actions */
 enum { CNAV_UP=1, CNAV_DOWN, CNAV_CLEAR, CNAV_BACK, CNAV_PIN,
        CNAV_SDEL, CNAV_SBACK, CNAV_SSTAR,
-       CNAV_TRPASTE, CNAV_TRCLEAR, CNAV_TRGO, CNAV_TRBACK,
+       CNAV_TRPASTE, CNAV_TRCLEAR, CNAV_TRGO, CNAV_TRBACK, CNAV_TRLANG,
        CNAV_FIND };
 enum { M_OFF = 0, M_HELD = 1, M_LOCKED = 2 };
 enum { MX_SHIFT = 0, MX_CTRL = 1, MX_ALT = 2, MX_WIN = 3 };
@@ -204,6 +205,8 @@ static const Macro g_macros[] = {
     { L"Mute",   0x0, VK_VOLUME_MUTE },
     { L"Vol+",   0x0, VK_VOLUME_UP },
     { L"Vol-",   0x0, VK_VOLUME_DOWN },
+    { L"Date",   0x10, 0 },   /* mods 0x10: insert date/time, not a combo */
+    { L"Time",   0x10, 1 },
 };
 #define NMACROS (sizeof(g_macros)/sizeof(g_macros[0]))
 /* settings panel actions */
@@ -553,7 +556,8 @@ static void BuildPinRow(void) {
 static void BuildTrRows(void) {
     AddKey(L"", K_INFO, 0, 0, 0,0, 10.0f, 50);
     AddKey(L"Paste", K_CNAV, CNAV_TRPASTE, 0, 0,0, 1.5f, 51);
-    AddKey(L"Clear", K_CNAV, CNAV_TRCLEAR, 0, 0,0, 1.5f, 51);
+    AddKey(L"Clear", K_CNAV, CNAV_TRCLEAR, 0, 0,0, 1.2f, 51);
+    AddKey(L"\u21C4", K_CNAV, CNAV_TRLANG, 0, 0,0, 1.2f, 51);
     AddKey(L"Go", K_CNAV, CNAV_TRGO, 0, 0,0, 1.5f, 51);
     AddKey(L"Keys", K_CNAV, CNAV_TRBACK, 0, 0,0, 1.5f, 51);
 }
@@ -565,11 +569,13 @@ static void BuildSuggRow(void) {
         AddKey(L"", K_SUGG, (UINT)i, 0, 0,0, 2.0f, 12);
 }
 
-/* one-tap shortcut macros (row 11), opened by the star button */
+/* one-tap shortcut macros (rows 11+16), opened by the star button.
+ * First 9 are app shortcuts; the rest (media, date/time) go on row 16
+ * so neither row gets overcrowded. */
 static void BuildMacrosRow(void) {
     unsigned i;
     for (i = 0; i < NMACROS; i++)
-        AddKey(g_macros[i].label, K_MACRO, g_macros[i].vk, g_macros[i].mods, 0,0, 1.5f, 11);
+        AddKey(g_macros[i].label, K_MACRO, g_macros[i].vk, g_macros[i].mods, 0,0, 1.5f, i < 9 ? 11 : 16);
 }
 
 /* clipboard page (rows 20-24 entries, 25 nav), opened by Clip button */
@@ -1820,6 +1826,26 @@ static void EmitCharChoice(wchar_t lo, wchar_t ch) {
     EmitText(s);
 }
 
+/* one-tap date/time insert (DD/MM/YYYY, HH:MM local) */
+static void FormatDateTime(int which, wchar_t *out) {
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    if (which == 0)
+        wsprintfW(out, L"%02d/%02d/%04d", st.wDay, st.wMonth, st.wYear);
+    else
+        wsprintfW(out, L"%02d:%02d", st.wHour, st.wMinute);
+}
+static void InsertDateTime(int which) {
+    wchar_t s[16];
+    const wchar_t *p;
+    FormatDateTime(which, s);
+    EnsureFocus();
+    g_autoActive = 0;
+    type_unicode(s);
+    for (p = s; *p; p++) WordChar(*p);
+    ConsumeHeld();
+    InvSugg();
+}
 /* one-tap shortcut macro: hold its modifiers, tap key, release.
  * Small sleeps matter: apps read async modifier state when pumping messages,
  * so releasing instantly would look like a bare keypress. */
@@ -2060,6 +2086,17 @@ static void ResolvePopup(void) {
 #define TR_MAXSRC 200
 #define WM_APP_TRDONE (WM_APP + 7)
 
+/* language pairs, cycled by the ⇄ button (all verified live) */
+typedef struct { const char *sl, *tl; const wchar_t *tag; } TrPair;
+static const TrPair g_trPairs[] = {
+    { "id", "en", L"ID>EN" },
+    { "en", "id", L"EN>ID" },
+    { "id", "ms", L"ID>MS" },
+    { "ms", "id", L"MS>ID" },
+};
+#define NTRPAIR (sizeof(g_trPairs) / sizeof(g_trPairs[0]))
+static int g_trPair = 0;
+
 static void InvRec(void);   /* forward: record/translate banner repaint */
 
 static int g_viewTr = 0;        /* translate page (like g_viewClip) */
@@ -2186,7 +2223,7 @@ static int TrParseJson(const char *js, size_t len, wchar_t *out, int outN) {
     return got;
 }
 
-typedef struct { wchar_t text[TR_MAXSRC + 1]; } TrJob;
+typedef struct { wchar_t text[TR_MAXSRC + 1]; char sl[8], tl[8]; } TrJob;
 
 static DWORD WINAPI TrThread(LPVOID param) {
     TrJob *job = (TrJob *)param;
@@ -2201,7 +2238,8 @@ static DWORD WINAPI TrThread(LPVOID param) {
     enc[enclen] = 0;
     if (!enclen) goto done;
     wsprintfA(url, "https://clients5.google.com/translate_a/t"
-                   "?client=dict-chrome-ex&sl=id&tl=en&q=%s", enc);
+                   "?client=dict-chrome-ex&sl=%s&tl=%s&q=%s",
+              job->sl, job->tl, enc);
     hs = InternetOpenW(L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                        L"AppleWebKit/537.36 (KHTML, like Gecko) "
                        L"Chrome/120.0 Safari/537.36",
@@ -2246,6 +2284,15 @@ static void InvTr(void) {
         if (g_keys[i].row == 50 || g_keys[i].row == 51) InvKey(i);
 }
 
+/* two-letter source code of the active pair ("ID", "EN", "MS") */
+static void TrSrcTag(wchar_t *out) {
+    int p = g_trPair;
+    if (p < 0 || p >= (int)NTRPAIR) p = 0;
+    out[0] = g_trPairs[p].tag[0];
+    out[1] = g_trPairs[p].tag[1];
+    out[2] = 0;
+}
+
 static void TrGo(void) {
     TrJob *job;
     HANDLE th;
@@ -2253,6 +2300,12 @@ static void TrGo(void) {
     job = (TrJob *)malloc(sizeof(TrJob));
     if (!job) return;
     wcscpy(job->text, g_trBuf);
+    {
+        int p = g_trPair;
+        if (p < 0 || p >= (int)NTRPAIR) { p = 0; g_trPair = 0; }
+        strcpy(job->sl, g_trPairs[p].sl);
+        strcpy(job->tl, g_trPairs[p].tl);
+    }
     g_trBusy = 1; g_trStatus = 1;
     InvTr();
     th = CreateThread(NULL, 0, TrThread, job, 0, NULL);
@@ -2854,6 +2907,13 @@ static void PressKey(int idx) {
             }
         }
         else if (k->vk == CNAV_TRGO) { TrGo(); }
+        else if (k->vk == CNAV_TRLANG) {
+            if (!g_trBusy) {
+                g_trPair = (g_trPair + 1) % (int)NTRPAIR;
+                g_trStatus = 0;
+                SaveSettings();
+            }
+        }
         else if (k->vk == CNAV_TRBACK) {
             g_viewTr = 0;
             g_trArm = 0;
@@ -2873,7 +2933,11 @@ static void PressKey(int idx) {
         InvalidateRect(g_hwnd, NULL, FALSE);
         return;
     }
-    if (k->kind == K_MACRO) { RunMacro(k->mod, k->vk); return; }
+    if (k->kind == K_MACRO) {
+        if (k->mod & 0x10) { InsertDateTime((int)k->vk); return; }
+        RunMacro(k->mod, k->vk);
+        return;
+    }
     if (k->kind == K_SCUT) {
         int s = (int)k->vk;
         if (s < 0 || s >= MAXSCUT) return;
@@ -2990,7 +3054,7 @@ static int BarH(void) { return (int)(30*g_scale); }
 
 static void ComputeLayout(int cw, int ch) {
     int pad = 6, gap = 4, bh = BarH(), hintH = 0;
-    int rows[12], nrows = 0, r, i;
+    int rows[16], nrows = 0, r, i;
     int y, avail, rh, x;
     /* bar buttons: side 0 packs from right (X at far right), side 1 from left */
     x = cw - pad;
@@ -3026,6 +3090,7 @@ static void ComputeLayout(int cw, int ch) {
     if (g_recSlot >= 0 || g_trArm || g_findArm) rows[nrows++] = 13;
     if (g_showSettings) rows[nrows++] = 10;
     if (g_showMacros) rows[nrows++] = 11;
+    if (g_showMacros) rows[nrows++] = 16;
     if (g_pinBarOn && StarCount() > 0) rows[nrows++] = 14;
     if (SuggRowOn()) rows[nrows++] = 12;
     if (g_compact) {
@@ -3077,7 +3142,7 @@ static int VisibleRow(int row) {
     if (g_viewCalc) return (row >= 40 && row <= 45);
     if (g_viewTr) return (row >= 50 && row <= 51);
     if (row == 10) return g_showSettings;
-    if (row == 11) return g_showMacros;
+    if (row == 11 || row == 16) return g_showMacros;
     if (row == 12) return SuggRowOn();
     if (row == 13) return (g_recSlot >= 0 || g_trArm || g_findArm);
     if (row == 14) return g_pinBarOn && (StarCount() > 0);
@@ -3249,7 +3314,14 @@ static void PaintKey(HDC dc, Key *k, int idx) {
         return;
     } else if (k->kind == K_CNAV) {
         SelectObject(dc, g_fSmall);
-        DrawTextW(dc, k->text, -1, &k->rc, DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        if (k->vk == CNAV_TRLANG) {
+            /* live pair tag (ID>EN …), tap cycles */
+            int p = g_trPair;
+            if (p < 0 || p >= (int)NTRPAIR) p = 0;
+            DrawTextW(dc, g_trPairs[p].tag, -1, &k->rc,
+                      DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        } else DrawTextW(dc, k->text, -1, &k->rc,
+                         DT_CENTER|DT_VCENTER|DT_SINGLELINE);
         return;
     } else if (k->kind == K_SCUT) {
         int s = (int)k->vk;
@@ -3298,8 +3370,10 @@ static void PaintKey(HDC dc, Key *k, int idx) {
             else if (g_trStatus == 2 && g_trOut[0]) {
                 wcsncpy(msg, g_trOut, 40); msg[40] = 0;
             } else if (g_trBuf[0]) {
+                wchar_t sc[3];
+                TrSrcTag(sc);
                 wcsncpy(src, g_trBuf, 40); src[40] = 0;
-                wsprintfW(msg, L"ID> %ls", src);
+                wsprintfW(msg, L"%ls> %ls", sc, src);
                 if (wcslen(g_trBuf) > 40) wcscat(msg, L"\u2026");
             } else wcscpy(msg, L"tap here to type, or Paste");
             DrawTextW(dc, msg, -1, &k->rc,
@@ -3307,9 +3381,10 @@ static void PaintKey(HDC dc, Key *k, int idx) {
             return;
         }
         if (g_trArm) {
-            wchar_t tb[48];
+            wchar_t tb[48], sc[3];
+            TrSrcTag(sc);
             wcsncpy(tb, g_trBuf, 40); tb[40] = 0;
-            wsprintfW(msg, L"ID> %ls (Enter done)", tb);
+            wsprintfW(msg, L"%ls> %ls (Enter done)", sc, tb);
             DrawTextW(dc, msg, -1, &k->rc,
                       DT_CENTER|DT_VCENTER|DT_SINGLELINE);
             return;
@@ -3450,6 +3525,7 @@ static int NRows(void) {
     if (g_recSlot >= 0 || g_trArm || g_findArm) n += 1;   /* banner above keys */
     if (!g_viewClip && !g_viewSC && g_pinBarOn && StarCount() > 0) n += 1;   /* pin strip */
     if (g_showSettings || g_showMacros) n += 1;
+    if (g_showMacros) n += 1;   /* media/date second row */
     if (SuggRowOn()) n += 1;
     return n;
 }
@@ -3566,6 +3642,8 @@ static void SaveSettings(void) {
     RegSetValueExW(k, L"Highlight", 0, REG_DWORD, (const BYTE *)&v, sizeof(v));
     v = (DWORD)(g_bigramOn ? 1 : 0);
     RegSetValueExW(k, L"Bigram", 0, REG_DWORD, (const BYTE *)&v, sizeof(v));
+    v = (DWORD)g_trPair;
+    RegSetValueExW(k, L"TrPair", 0, REG_DWORD, (const BYTE *)&v, sizeof(v));
     v = (DWORD)(g_pinBarOn ? 1 : 0);
     RegSetValueExW(k, L"PinBar", 0, REG_DWORD, (const BYTE *)&v, sizeof(v));
     for (i = 0; i < MAXSCUT; i++) {
@@ -3643,6 +3721,10 @@ static void LoadSettings(void) {
     if (RegQueryValueExW(k, L"Bigram", NULL, &type, (BYTE *)&v, &sz) == ERROR_SUCCESS
         && type == REG_DWORD)
         g_bigramOn = v ? 1 : 0;
+    sz = sizeof(v);
+    if (RegQueryValueExW(k, L"TrPair", NULL, &type, (BYTE *)&v, &sz) == ERROR_SUCCESS
+        && type == REG_DWORD && (int)v >= 0 && (int)v < (int)NTRPAIR)
+        g_trPair = (int)v;
     sz = sizeof(v);
     if (RegQueryValueExW(k, L"PinBar", NULL, &type, (BYTE *)&v, &sz) == ERROR_SUCCESS
         && type == REG_DWORD)

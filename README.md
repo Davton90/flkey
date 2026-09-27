@@ -70,6 +70,7 @@ untuk mengetik bahasa Indonesia (atau `Paste` dari clipboard), ketuk
 `Go` — hasil Inggris diketik otomatis di posisi kursor. `...` =
 menerjemahkan, `offline?` = tidak ada internet/API gagal. Butuh
 internet; endpoint tidak resmi (bisa kena rate-limit bila dispam).
+Tombol pasangan bahasa (`ID>EN`) memutar ID⇄EN dan ID⇄MS (MS = Melayu).
 
 ## Custom shortcuts (tombol `SC`)
 
@@ -191,8 +192,8 @@ Real shortcuts with mouse/touch only:
   `ID`/`EN` language, `Pred` suggestions, `Bi` bigram next-word,
   `Auto` autocorrect, `Spell` misspelt highlight,
   `Pin` pin window on top, `★` show/hide pinned-shortcut strip, `Done`
-- `★` = one-tap shortcut panel: Copy Paste Cut Undo Save All AltTab Shot Lock
-  plus media Play Prev Next Mute Vol+ Vol-
+- `★` = one-tap shortcut panel (2 rows): Copy Paste Cut Undo Save All
+  AltTab Shot Lock, plus media Play Prev Next Mute Vol+ Vol- and Date/Time
 - `SC` = custom shortcuts page: 10 user-recorded combos (tap `+` to record)
 - `Calc` = built-in calculator page (offline), `Tr` = ID→EN translate page
 - `Fn` = show/hide `Esc F1–F12` (Full mode only), `Compact`/`Full` = switch layouts
