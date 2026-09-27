@@ -28,7 +28,9 @@
 #define EXTKEY(k) ((k)==VK_LEFT||(k)==VK_UP||(k)==VK_RIGHT||(k)==VK_DOWN|| \
                    (k)==VK_LWIN||(k)==VK_APPS||(k)==VK_DELETE||(k)==VK_SNAPSHOT|| \
                    (k)==VK_HOME||(k)==VK_END||(k)==VK_PRIOR||(k)==VK_NEXT|| \
-                   (k)==VK_INSERT)
+                   (k)==VK_INSERT||(k)==VK_MEDIA_PLAY_PAUSE|| \
+                   (k)==VK_MEDIA_PREV_TRACK||(k)==VK_MEDIA_NEXT_TRACK|| \
+                   (k)==VK_VOLUME_MUTE||(k)==VK_VOLUME_DOWN||(k)==VK_VOLUME_UP)
 
 static void vk_down(UINT vk) {
     INPUT in_ = {0};
@@ -83,7 +85,8 @@ typedef enum { K_CHAR, K_SPECIAL, K_MOD, K_CAPS, K_SPACE, K_PAGE, K_MACRO, K_SET
 /* clip nav actions */
 enum { CNAV_UP=1, CNAV_DOWN, CNAV_CLEAR, CNAV_BACK, CNAV_PIN,
        CNAV_SDEL, CNAV_SBACK, CNAV_SSTAR,
-       CNAV_TRPASTE, CNAV_TRCLEAR, CNAV_TRGO, CNAV_TRBACK };
+       CNAV_TRPASTE, CNAV_TRCLEAR, CNAV_TRGO, CNAV_TRBACK,
+       CNAV_FIND };
 enum { M_OFF = 0, M_HELD = 1, M_LOCKED = 2 };
 enum { MX_SHIFT = 0, MX_CTRL = 1, MX_ALT = 2, MX_WIN = 3 };
 
@@ -153,6 +156,8 @@ typedef struct { int isImg; wchar_t *text; HBITMAP hbmp; int iw, ih; int pinned;
 static ClipEnt g_clip[MAXCLIP];
 static int g_nclip = 0, g_clipOff = 0, g_viewClip = 0, g_ownClip = 0;
 static int g_pinArm = 0;   /* Pin mode: tapping a clip entry pins/unpins it */
+static int g_findArm = 0;  /* Find typing mode on the keys view */
+static wchar_t g_findBuf[32];   /* active filter; empty = show all */
 static int g_mods[4] = { M_OFF, M_OFF, M_OFF, M_OFF };
 static int g_capsLast = -1;
 static const UINT MODVK[4] = { VK_SHIFT, VK_CONTROL, VK_MENU, VK_LWIN };
@@ -193,6 +198,12 @@ static const Macro g_macros[] = {
     { L"AltTab", 0x4, VK_TAB },
     { L"Shot",   0x8, VK_SNAPSHOT },
     { L"Lock",   0x8, 'L' },
+    { L"Play",   0x0, VK_MEDIA_PLAY_PAUSE },
+    { L"Prev",   0x0, VK_MEDIA_PREV_TRACK },
+    { L"Next",   0x0, VK_MEDIA_NEXT_TRACK },
+    { L"Mute",   0x0, VK_VOLUME_MUTE },
+    { L"Vol+",   0x0, VK_VOLUME_UP },
+    { L"Vol-",   0x0, VK_VOLUME_DOWN },
 };
 #define NMACROS (sizeof(g_macros)/sizeof(g_macros[0]))
 /* settings panel actions */
@@ -350,6 +361,8 @@ static void BuildFull(void) {
     AddKey(L"Ctrl", K_MOD, 0, MX_CTRL, 0,0, 1.3f, 5);
     AddKey(L"PgUp", K_SPECIAL, VK_PRIOR, 0, 0,0, 1.2f, 5);
     AddKey(L"PgDn", K_SPECIAL, VK_NEXT, 0, 0,0, 1.2f, 5);
+    AddKey(L"Home", K_SPECIAL, VK_HOME, 0, 0,0, 1.0f, 5);
+    AddKey(L"End", K_SPECIAL, VK_END, 0, 0,0, 1.0f, 5);
     AddKey(L"\u25C0", K_SPECIAL, VK_LEFT, 0, 0,0, 1.0f, 5);
     AddKey(L"\u25BC", K_SPECIAL, VK_DOWN, 0, 0,0, 1.0f, 5);
     AddKey(L"\u25B6", K_SPECIAL, VK_RIGHT, 0, 0,0, 1.0f, 5);
@@ -402,6 +415,8 @@ static void BuildCompactAbc(void) {
     AddKey(L"Del", K_SPECIAL, VK_DELETE, 0, 0,0, 1.2f, 3);
     AddKey(L"PgUp", K_SPECIAL, VK_PRIOR, 0, 0,0, 1.0f, 3);
     AddKey(L"PgDn", K_SPECIAL, VK_NEXT, 0, 0,0, 1.0f, 3);
+    AddKey(L"Home", K_SPECIAL, VK_HOME, 0, 0,0, 1.0f, 3);
+    AddKey(L"End", K_SPECIAL, VK_END, 0, 0,0, 1.0f, 3);
     AddKey(L"\u25C0", K_SPECIAL, VK_LEFT, 0, 0,0, 1.0f, 3);
     AddKey(L"\u25BC", K_SPECIAL, VK_DOWN, 0, 0,0, 1.0f, 3);
     AddKey(L"\u25B6", K_SPECIAL, VK_RIGHT, 0, 0,0, 1.0f, 3);
@@ -450,6 +465,8 @@ static void BuildCompactSym(void) {
     AddKey(L"\u2630", K_SPECIAL, VK_APPS, 0, 0,0, 1.2f, 3);
     AddKey(L"PgUp", K_SPECIAL, VK_PRIOR, 0, 0,0, 1.0f, 3);
     AddKey(L"PgDn", K_SPECIAL, VK_NEXT, 0, 0,0, 1.0f, 3);
+    AddKey(L"Home", K_SPECIAL, VK_HOME, 0, 0,0, 1.0f, 3);
+    AddKey(L"End", K_SPECIAL, VK_END, 0, 0,0, 1.0f, 3);
     AddKey(L"\u25C0", K_SPECIAL, VK_LEFT, 0, 0,0, 1.0f, 3);
     AddKey(L"\u25BC", K_SPECIAL, VK_DOWN, 0, 0,0, 1.0f, 3);
     AddKey(L"\u25B6", K_SPECIAL, VK_RIGHT, 0, 0,0, 1.0f, 3);
@@ -562,9 +579,10 @@ static void BuildClipRows(void) {
         AddKey(L"", K_CLIP, (UINT)i, 0, 0,0, 1.0f, 20 + i);
     AddKey(L"\u25B2", K_CNAV, CNAV_UP, 0, 0,0, 1.2f, 25);
     AddKey(L"\u25BC", K_CNAV, CNAV_DOWN, 0, 0,0, 1.2f, 25);
-    AddKey(L"Clear", K_CNAV, CNAV_CLEAR, 0, 0,0, 1.8f, 25);
-    AddKey(L"Pin", K_CNAV, CNAV_PIN, 0, 0,0, 1.8f, 25);
-    AddKey(L"Keys", K_CNAV, CNAV_BACK, 0, 0,0, 1.8f, 25);
+    AddKey(L"Clear", K_CNAV, CNAV_CLEAR, 0, 0,0, 1.5f, 25);
+    AddKey(L"Pin", K_CNAV, CNAV_PIN, 0, 0,0, 1.5f, 25);
+    AddKey(L"Find", K_CNAV, CNAV_FIND, 0, 0,0, 1.5f, 25);
+    AddKey(L"Keys", K_CNAV, CNAV_BACK, 0, 0,0, 1.5f, 25);
 }
 
 static void BuildPanels(void) {
@@ -1187,6 +1205,43 @@ static int ClipPrepend(ClipEnt *src) {
     g_nclip++;
     g_clipOff = 0;
     return 1;
+}
+
+/* ---------------- clip find/filter ------------------------------ */
+/* case-insensitive substring; empty needle matches everything */
+static int wcsistr(const wchar_t *hay, const wchar_t *ndl) {
+    size_t i, j;
+    if (!hay) return 0;
+    if (!ndl || !*ndl) return 1;
+    for (i = 0; hay[i]; i++) {
+        for (j = 0; ndl[j]; j++) {
+            wchar_t a = hay[i + j], b = ndl[j];
+            if (!a) break;
+            if (a >= L'A' && a <= L'Z') a += 32;
+            if (b >= L'A' && b <= L'Z') b += 32;
+            if (a != b) break;
+        }
+        if (!ndl[j]) return 1;
+    }
+    return 0;
+}
+static int ClipMatch(ClipEnt *e) {
+    if (!g_findBuf[0]) return 1;
+    if (e->isImg) return wcsistr(L"img", g_findBuf);   /* "img" lists images */
+    return wcsistr(e->text ? e->text : L"", g_findBuf);
+}
+static int ClipMatchCount(void) {
+    int i, n = 0;
+    for (i = 0; i < g_nclip; i++)
+        if (ClipMatch(&g_clip[i])) n++;
+    return n;
+}
+/* visible slot -> history index (filter- and page-aware), or -1 */
+static int ClipVisibleIdx(int slot) {
+    int i, n = 0, want = g_clipOff + slot;
+    for (i = 0; i < g_nclip; i++)
+        if (ClipMatch(&g_clip[i]) && n++ == want) return i;
+    return -1;
 }
 
 /* copy any HBITMAP into a 32bpp DIBSection, downscaled to maxDim */
@@ -2415,7 +2470,7 @@ static void CalcKey(wchar_t ch) {
 static BOOL IsRepeatable(UINT vk) {
     return vk==VK_BACK||vk==VK_DELETE||vk==VK_SPACE||
            vk==VK_LEFT||vk==VK_UP||vk==VK_DOWN||vk==VK_RIGHT||
-           vk==VK_PRIOR||vk==VK_NEXT;
+           vk==VK_PRIOR||vk==VK_NEXT||vk==VK_HOME||vk==VK_END;
 }
 
 /* double-tap Backspace deletes the whole previous word (no need to hold).
@@ -2505,6 +2560,14 @@ static void KeyName(UINT vk, wchar_t *out) {
         case VK_CAPITAL: wcscpy(out, L"Caps"); return;
         case VK_PRIOR: wcscpy(out, L"PgUp"); return;
         case VK_NEXT: wcscpy(out, L"PgDn"); return;
+        case VK_HOME: wcscpy(out, L"Home"); return;
+        case VK_END: wcscpy(out, L"End"); return;
+        case VK_MEDIA_PLAY_PAUSE: wcscpy(out, L"Play"); return;
+        case VK_MEDIA_PREV_TRACK: wcscpy(out, L"Prev"); return;
+        case VK_MEDIA_NEXT_TRACK: wcscpy(out, L"Next"); return;
+        case VK_VOLUME_MUTE: wcscpy(out, L"Mute"); return;
+        case VK_VOLUME_UP: wcscpy(out, L"Vol+"); return;
+        case VK_VOLUME_DOWN: wcscpy(out, L"Vol-"); return;
         case VK_SNAPSHOT: wcscpy(out, L"Prt"); return;
         case VK_APPS: wcscpy(out, L"Menu"); return;
         case VK_OEM_1: wcscpy(out, L";"); return;
@@ -2635,6 +2698,55 @@ static int CaptureKey(int idx) {
     return 1;
 }
 
+/* keystrokes while typing a find filter: swallowed, nothing is sent */
+static int FindKey(int idx) {
+    Key *k = &g_keys[idx];
+    if (k->kind == K_MOD) {
+        int m = k->mod;
+        g_mods[m] = (g_mods[m] == M_OFF) ? M_HELD : M_OFF;
+        InvMod(m);
+        return 1;
+    }
+    if (k->kind == K_SHCAP) {
+        g_mods[MX_SHIFT] = (g_mods[MX_SHIFT] == M_OFF) ? M_HELD : M_OFF;
+        InvMod(MX_SHIFT); ShcapRefresh();
+        return 1;
+    }
+    if (k->kind == K_CHAR) {
+        size_t L = wcslen(g_findBuf);
+        if (L < 31) {
+            g_findBuf[L] = ShiftedFor(k->lo) ? k->hi : k->lo;
+            g_findBuf[L + 1] = 0;
+            InvRec();
+        }
+        return 1;
+    }
+    if (k->kind == K_SPACE) {
+        size_t L = wcslen(g_findBuf);
+        if (L < 31 && L > 0) {
+            g_findBuf[L] = L' '; g_findBuf[L + 1] = 0;
+            InvRec();
+        }
+        return 1;
+    }
+    if (k->kind == K_SPECIAL) {
+        if (k->vk == VK_BACK) {
+            size_t L = wcslen(g_findBuf);
+            if (L) { g_findBuf[L - 1] = 0; InvRec(); }
+        } else if (k->vk == VK_RETURN || k->vk == VK_ESCAPE) {
+            int i;
+            g_findArm = 0;
+            for (i = 0; i < 4; i++)
+                if (g_mods[i] != M_OFF) { g_mods[i] = M_OFF; InvMod(i); }
+            g_viewClip = 1;
+            g_clipOff = 0;
+            ResizeForScale();
+        }
+        return 1;
+    }
+    return 1;
+}
+
 static void PressKey(int idx) {
     Key *k;
     if (idx < 0 || idx >= g_nkeys) return;
@@ -2653,6 +2765,14 @@ static void PressKey(int idx) {
         InvKey(idx);
         return;
     }
+    /* find-filter typing mode: same idea, into the clip filter buffer */
+    if (g_findArm && !g_viewClip && !g_viewSC && !g_viewCalc && !g_viewTr &&
+        idx >= 0 && idx < g_nkeys && FindKey(idx)) {
+        g_pressed = idx;
+        SetTimer(g_hwnd, TIMER_FLASH, 80, NULL);
+        InvKey(idx);
+        return;
+    }
     k = &g_keys[idx];
     /* any key other than Backspace cancels a pending double-tap window */
     if (!(k->kind == K_SPECIAL && k->vk == VK_BACK)) g_bkspLastUp = 0;
@@ -2664,9 +2784,9 @@ static void PressKey(int idx) {
     if (k->kind == K_SHCAP) { ShcapPress(); return; }
     if (k->kind == K_SUGG) { CommitSugg((int)k->vk); return; }
     if (k->kind == K_CLIP) {
-        int hi = g_clipOff + (int)k->vk;
+        int hi = ClipVisibleIdx((int)k->vk);
         if (g_pinArm) {   /* Pin mode: tap toggles pin instead of pasting */
-            if (hi >= 0 && hi < g_nclip) {
+            if (hi >= 0) {
                 ClipTogglePin(hi);
                 InvalidateRect(g_hwnd, NULL, FALSE);
             }
@@ -2677,9 +2797,25 @@ static void PressKey(int idx) {
     }
     if (k->kind == K_CNAV) {
         if (k->vk == CNAV_UP && g_clipOff > 0) { g_clipOff -= 5; if (g_clipOff < 0) g_clipOff = 0; }
-        else if (k->vk == CNAV_DOWN && g_clipOff + 5 < g_nclip) g_clipOff += 5;
-        else if (k->vk == CNAV_CLEAR) ClipClearUnpinned();
+        else if (k->vk == CNAV_DOWN && g_clipOff + 5 < ClipMatchCount()) g_clipOff += 5;
+        else if (k->vk == CNAV_CLEAR) {
+            ClipClearUnpinned();
+            if (g_clipOff >= ClipMatchCount()) g_clipOff = 0;
+        }
         else if (k->vk == CNAV_PIN) { g_pinArm = !g_pinArm; }
+        else if (k->vk == CNAV_FIND) {
+            if (g_findBuf[0]) {   /* filter on: tap clears it */
+                g_findBuf[0] = 0;
+                g_clipOff = 0;
+            } else {              /* else type one on the keys view */
+                int i;
+                for (i = 0; i < 4; i++)
+                    if (g_mods[i] != M_OFF) { vk_up(MODVK[i]); g_mods[i] = M_OFF; InvMod(i); }
+                g_findArm = 1;
+                g_viewClip = 0; g_pinArm = 0;
+                ResizeForScale();   /* typing banner appears */
+            }
+        }
         else if (k->vk == CNAV_SDEL) {
             g_scDelArm = !g_scDelArm;
             if (g_scDelArm) g_starArm = 0;
@@ -2887,7 +3023,7 @@ static void ComputeLayout(int cw, int ch) {
         for (r = 50; r <= 51; r++) rows[nrows++] = r;
     } else {
     /* record/translate banner first, then panels, pin strip, suggestions, keys */
-    if (g_recSlot >= 0 || g_trArm) rows[nrows++] = 13;
+    if (g_recSlot >= 0 || g_trArm || g_findArm) rows[nrows++] = 13;
     if (g_showSettings) rows[nrows++] = 10;
     if (g_showMacros) rows[nrows++] = 11;
     if (g_pinBarOn && StarCount() > 0) rows[nrows++] = 14;
@@ -2943,7 +3079,7 @@ static int VisibleRow(int row) {
     if (row == 10) return g_showSettings;
     if (row == 11) return g_showMacros;
     if (row == 12) return SuggRowOn();
-    if (row == 13) return (g_recSlot >= 0 || g_trArm);
+    if (row == 13) return (g_recSlot >= 0 || g_trArm || g_findArm);
     if (row == 14) return g_pinBarOn && (StarCount() > 0);
     if (row >= 20) return 0;
     if (g_compact) return 1;
@@ -3014,6 +3150,8 @@ static void PaintKey(HDC dc, Key *k, int idx) {
         bg = C_LOCK; fg = C_TXT;
     }
     if (k->kind == K_CNAV && k->vk == CNAV_PIN && g_pinArm) { bg = C_LOCK; fg = C_TXT; }
+    if (k->kind == K_CNAV && k->vk == CNAV_FIND &&
+        (g_findArm || g_findBuf[0])) { bg = C_LOCK; fg = C_TXT; }
     if (k->kind == K_CNAV && k->vk == CNAV_SDEL && g_scDelArm) { bg = C_LOCK; fg = C_TXT; }
     if (idx == g_pressed) bg = C_ACTIVE;
     /* pin strip: slimmer corners to match the tight gap */
@@ -3022,8 +3160,8 @@ static void PaintKey(HDC dc, Key *k, int idx) {
     SetBkMode(dc, TRANSPARENT);
     SetTextColor(dc, fg);
     if (k->kind == K_CLIP) {
-        int hi = g_clipOff + (int)k->vk;
-        if (hi >= 0 && hi < g_nclip) {
+        int hi = ClipVisibleIdx((int)k->vk);
+        if (hi >= 0) {
             ClipEnt *e = &g_clip[hi];
             if (e->isImg && e->hbmp) {
                 HDC mdc = CreateCompatibleDC(dc);
@@ -3090,8 +3228,8 @@ static void PaintKey(HDC dc, Key *k, int idx) {
         }
         {
             /* pinned entries get a small PIN tag at the top-right */
-            int hi2 = g_clipOff + (int)k->vk;
-            if (hi2 >= 0 && hi2 < g_nclip && g_clip[hi2].pinned) {
+            int hi2 = ClipVisibleIdx((int)k->vk);
+            if (hi2 >= 0 && g_clip[hi2].pinned) {
                 RECT tr;
                 int tw = (int)(30 * g_scale), th = (int)(15 * g_scale);
                 if (tw < 22) tw = 22;
@@ -3176,6 +3314,14 @@ static void PaintKey(HDC dc, Key *k, int idx) {
                       DT_CENTER|DT_VCENTER|DT_SINGLELINE);
             return;
         }
+        if (g_findArm) {
+            wchar_t fb[48];
+            wcsncpy(fb, g_findBuf, 31); fb[31] = 0;
+            wsprintfW(msg, L"Find: %ls (Enter done)", fb);
+            DrawTextW(dc, msg, -1, &k->rc,
+                      DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+            return;
+        }
         SelectObject(dc, g_fSmall);
         if (g_recStep == 0) {
             wsprintfW(msg, L"\u25CF REC %d: tap modifiers+key (SC cancels)",
@@ -3219,7 +3365,8 @@ static void PaintKey(HDC dc, Key *k, int idx) {
         DrawTextW(dc, k->text, -1, &r, DT_CENTER|DT_VCENTER|DT_SINGLELINE);
     } else {
         int small = (k->kind == K_MACRO) ||
-            (k->kind == K_SPECIAL && (k->vk == VK_PRIOR || k->vk == VK_NEXT));
+            (k->kind == K_SPECIAL && (k->vk == VK_PRIOR || k->vk == VK_NEXT ||
+             k->vk == VK_HOME || k->vk == VK_END));
         SelectObject(dc, small ? g_fSmall : g_fKey);
         DrawTextW(dc, k->text, -1, &k->rc, DT_CENTER|DT_VCENTER|DT_SINGLELINE);
     }
@@ -3300,7 +3447,7 @@ static int NRows(void) {
     if (g_viewCalc) return 6;
     if (g_viewTr) return 2;
     n = g_compact ? 4 : (g_showFn ? 6 : 5);
-    if (g_recSlot >= 0 || g_trArm) n += 1;   /* record banner above the keys */
+    if (g_recSlot >= 0 || g_trArm || g_findArm) n += 1;   /* banner above keys */
     if (!g_viewClip && !g_viewSC && g_pinBarOn && StarCount() > 0) n += 1;   /* pin strip */
     if (g_showSettings || g_showMacros) n += 1;
     if (SuggRowOn()) n += 1;

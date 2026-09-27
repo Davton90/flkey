@@ -100,7 +100,9 @@ in browser). Tap an entry to paste it into the focused app. `▲`/`▼`
 scroll, `Clear` empties everything except pins, `Keys` returns to the
 keyboard. Teks (+pin) tersimpan permanen di
 `%LOCALAPPDATA%\FloatKeys\clip.dat` dan dimuat lagi saat dibuka;
-gambar hanya sesi berjalan.
+gambar hanya sesi berjalan. `Find`: ketuk lalu ketik filter (Enter
+selesai) — hanya entri cocok yang tampil (`img` untuk gambar),
+ketuk `Find` lagi untuk hapus filter.
 
 ## Pinned clipboard items
 
@@ -116,7 +118,7 @@ saved to `HKCU\Software\FloatKeys` on every change and on exit — they
 survive restarts and Windows shutdown. Delete that registry key to reset.
 
 Like the Windows touch keyboard, but **with** the missing keys:
-`Shift`, `Ctrl`, `Alt`, `Win`, `Tab`, `CapsLock`, `Esc`, `F1–F12`, arrows, `PgUp`/`PgDn`, `Del`, `PrtSc`, menu key.
+`Shift`, `Ctrl`, `Alt`, `Win`, `Tab`, `CapsLock`, `Esc`, `F1–F12`, arrows, `PgUp`/`PgDn`, `Home`/`End`, `Del`, `PrtSc`, menu key.
 
 Two versions, same behavior:
 
@@ -190,6 +192,7 @@ Real shortcuts with mouse/touch only:
   `Auto` autocorrect, `Spell` misspelt highlight,
   `Pin` pin window on top, `★` show/hide pinned-shortcut strip, `Done`
 - `★` = one-tap shortcut panel: Copy Paste Cut Undo Save All AltTab Shot Lock
+  plus media Play Prev Next Mute Vol+ Vol-
 - `SC` = custom shortcuts page: 10 user-recorded combos (tap `+` to record)
 - `Calc` = built-in calculator page (offline), `Tr` = ID→EN translate page
 - `Fn` = show/hide `Esc F1–F12` (Full mode only), `Compact`/`Full` = switch layouts
